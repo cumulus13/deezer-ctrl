@@ -1,0 +1,6 @@
+pychrome
+pydebugger
+configset
+requests
+beautifulsoup4 (or bs4)
+make_colors
