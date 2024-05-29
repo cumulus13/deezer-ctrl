@@ -14,14 +14,16 @@ from urllib.parse import quote
 class Deezer(object):
     CONFIGNAME = str(Path(__file__).parent / 'deezer.ini')
     CONFIG = configset(CONFIGNAME)
-    URL = CONFIG.get_config('general', 'url', "http://127.0.0.1:9222") or "http://127.0.0.1:9222"
+    PORT = CONFIG.get_config('general', 'port', '9222') or 9222
+    URL = CONFIG.get_config('general', 'url', f"http://127.0.0.1:{PORT}") or f"http://127.0.0.1:{PORT}"
     BROWSER = pychrome.Browser(url=URL)
     TAB = None
     
-    def __init__(self, url: str | None = None, configname: str | None = None) -> None:
+    def __init__(self, url: str | None = None, configname: str | None = None, port: int | None = 9222) -> None:
         self.URL = url or self.URL
         if configname:
             self.CONFIG = configset(configname)
+        self.PORT = port or self.PORT
             
     @classmethod
     def find_deezer_tab(self):
@@ -272,11 +274,17 @@ class Deezer(object):
         parser.add_argument('-p', '--previous', action = 'store_true', help = 'Previous')
         parser.add_argument('-r', '--repeat', action = 'store_true', help = 'Repeat')
         parser.add_argument('-l', '--current-playlist', action = 'store_true', help = 'Current Playlist Info')
+        parser.add_argument('--port', action = 'store', type = int, default = 9222, help = 'Remote debugging port "--remote-debugging-port=?", default = 9222')
+        parser.add_argument('--host', action = 'store', type = str, default = '127.0.0.1', help = 'Remote debugging host, default = 127.0.0.1')
         
         if len(sys.argv) == 1:
             parser.print_help()
         else:
             args = parser.parse_args()
+            if args.port != 9222:
+                self.URL = f"http://{args.host}:{args.port}"
+                self.BROWSER = pychrome.Browser(url=self.URL)
+                
             if args.play:
                 self.play()
             elif args.pause:
