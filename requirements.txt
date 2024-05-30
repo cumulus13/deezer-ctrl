@@ -4,3 +4,6 @@ configset
 requests
 bs4
 make_colors
+rich
+websockets
+gntp

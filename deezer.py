@@ -10,6 +10,10 @@ from bs4 import BeautifulSoup as bs
 from make_colors import make_colors
 import re
 from urllib.parse import quote
+try:
+    from . import deezer_ws
+except:
+    import deezer_ws
 
 class Deezer(object):
     CONFIGNAME = str(Path(__file__).parent / 'deezer.ini')
@@ -93,25 +97,70 @@ class Deezer(object):
         
     
     @classmethod
-    def get_repeat_status(self):
+    def get_repeat_status(self, repeat_type = None):
+        '''
+            @repeat_type :option:str "all", "one", "off" 
+        '''
         tab = self.TAB or self.find_deezer_tab()
         tab.start()
-        script = """document.querySelector('button[data-testid="repeat_button_all"]').getAttribute('data-testid');"""
+        script = """document.querySelector('button[data-testid*="repeat_button_"]').getAttribute('data-testid');"""
         result = tab.Runtime.evaluate(expression=script)
         debug(result = result)
+        
+        if repeat_type == 'all':
+            while 1:
+                script = """document.querySelector('button[data-testid*="repeat_button_"]').click();"""
+                result = tab.Runtime.evaluate(expression=script)
+                debug(result = result)
+                
+                script = """document.querySelector('button[data-testid*="repeat_button_"]').getAttribute('data-testid');"""
+                result = tab.Runtime.evaluate(expression=script)
+                debug(result = result)
+                if result.get('result').get('value') == 'repeat_button_all':
+                    break
+        elif repeat_type == 'one':
+            while 1:
+                script = """document.querySelector('button[data-testid*="repeat_button_"]').click();"""
+                result = tab.Runtime.evaluate(expression=script)
+                debug(result = result)
+                
+                script = """document.querySelector('button[data-testid*="repeat_button_"]').getAttribute('data-testid');"""
+                result = tab.Runtime.evaluate(expression=script)
+                debug(result = result)
+                if result.get('result').get('value') == 'repeat_button_single':
+                    break            
+        
+        elif repeat_type == 'off':
+            while 1:
+                script = """document.querySelector('button[data-testid*="repeat_button_"]').click();"""
+                result = tab.Runtime.evaluate(expression=script)
+                debug(result = result)
+                
+                script = """document.querySelector('button[data-testid*="repeat_button_"]').getAttribute('data-testid');"""
+                result = tab.Runtime.evaluate(expression=script)
+                debug(result = result)
+                if result.get('result').get('value') == 'repeat_button_off':
+                    break            
+        
         return result['result']
     
     @classmethod
     def play_song(self, aria_label):
         if aria_label.isdigit():
             all_title = self.get_current_playlist(interactive=False)
+            debug(all_title = all_title)
             if int(aria_label) <= len(all_title):
-                aria_label = all_title[int(aria_label) - 1].text
+                aria_label = all_title[int(aria_label) - 1].get('title')
             else:
                 print(make_colors("Invalid Number !", 'lw', 'r'))
                 
         tab = self.TAB or self.find_deezer_tab()
+        debug(tab = tab)    
+        debug(tab_status = tab.status_started)    
+        debug(dir_tab = dir(tab))
+        debug(tab_id = tab.id)
         tab.start()
+        #tab.Page.reload(ignoreCache=True) 
         script = f"""document.querySelector('button[aria-label*="{aria_label}"]').click();"""
         result = tab.Runtime.evaluate(expression=script)
         debug(result = result)
@@ -272,10 +321,11 @@ class Deezer(object):
         parser.add_argument('-s', '--pause', action = 'store_true', help = 'Pause')
         parser.add_argument('-n', '--next', action = 'store_true', help = 'Next')
         parser.add_argument('-p', '--previous', action = 'store_true', help = 'Previous')
-        parser.add_argument('-r', '--repeat', action = 'store_true', help = 'Repeat')
+        parser.add_argument('-r', '--repeat', action = 'store', help = 'Repeat "all" | "one" | "off" or you can insert number as "1" == "all", "2" == "one", "0" == "off"')
         parser.add_argument('-l', '--current-playlist', action = 'store_true', help = 'Current Playlist Info')
         parser.add_argument('--port', action = 'store', type = int, default = 9222, help = 'Remote debugging port "--remote-debugging-port=?", default = 9222')
         parser.add_argument('--host', action = 'store', type = str, default = '127.0.0.1', help = 'Remote debugging host, default = 127.0.0.1')
+        parser.add_argument('-m', '--monitor', action = 'store_true', help = 'Run monitor mode')
         
         if len(sys.argv) == 1:
             parser.print_help()
@@ -297,6 +347,15 @@ class Deezer(object):
                 self.get_current_playlist()
             elif args.play_song:
                 self.play_song(args.play_song)
+            elif args.repeat:
+                if args.repeat == "1" or args.repeat == "all":
+                    self.get_repeat_status('all')
+                elif args.repeat == "2" or args.repeat == "one":
+                    self.get_repeat_status('one')
+                elif args.repeat == "0" or args.repeat == "off":
+                    self.get_repeat_status('off')
+            elif args.monitor:
+                deezer_ws.start()
     
 if __name__ == '__main__':
     #Deezer.get_repeat_status()
