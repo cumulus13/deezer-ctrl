@@ -145,6 +145,16 @@ class Deezer(object):
         return result['result']
     
     @classmethod
+    def reload(self):
+        tab = self.TAB or self.find_deezer_tab()
+        debug(tab = tab)    
+        debug(tab_status = tab.status_started)    
+        debug(dir_tab = dir(tab))
+        debug(tab_id = tab.id)
+        tab.start()
+        tab.Page.reload(ignoreCache=True)
+        
+    @classmethod
     def play_song(self, aria_label):
         if aria_label.isdigit():
             all_title = self.get_current_playlist(interactive=False)
@@ -322,6 +332,7 @@ class Deezer(object):
         parser.add_argument('-n', '--next', action = 'store_true', help = 'Next')
         parser.add_argument('-p', '--previous', action = 'store_true', help = 'Previous')
         parser.add_argument('-r', '--repeat', action = 'store', help = 'Repeat "all" | "one" | "off" or you can insert number as "1" == "all", "2" == "one", "0" == "off"')
+        parser.add_argument('-R', '--reload', action = 'store_true', help = 'Reload / Refresh Page / Tab')
         parser.add_argument('-l', '--current-playlist', action = 'store_true', help = 'Current Playlist Info')
         parser.add_argument('--port', action = 'store', type = int, default = 9222, help = 'Remote debugging port "--remote-debugging-port=?", default = 9222')
         parser.add_argument('--host', action = 'store', type = str, default = '127.0.0.1', help = 'Remote debugging host, default = 127.0.0.1')
@@ -356,6 +367,8 @@ class Deezer(object):
                     self.get_repeat_status('off')
             elif args.monitor:
                 deezer_ws.start()
+            elif args.reload:
+                self.reload()
     
 if __name__ == '__main__':
     #Deezer.get_repeat_status()

@@ -1,4 +1,7 @@
 import asyncio
+import os
+import traceback
+
 import websockets
 import json
 from pydebugger.debug import debug
@@ -23,11 +26,17 @@ class DeezerController:
         asyncio.ensure_future(self.receive_messages())
 
     async def receive_messages(self):
-        async for message in self.connection:
-            message_data = json.loads(message)
-            if 'id' in message_data and message_data['id'] in self.pending_responses:
-                future = self.pending_responses.pop(message_data['id'])
-                future.set_result(message_data)
+        while 1:
+            try:
+                async for message in self.connection:
+                    message_data = json.loads(message)
+                    if 'id' in message_data and message_data['id'] in self.pending_responses:
+                        future = self.pending_responses.pop(message_data['id'])
+                        future.set_result(message_data)
+                break
+            except:
+                if os.getenv('TRACEBACK') == "1":
+                    print(traceback.format_exc())
 
     async def send_message(self, method, params=None):
         message_id = self.next_id
