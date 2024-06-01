@@ -137,16 +137,22 @@ class DeezerController:
             debug(object_id = object_id)
             properties_response = await self.get_properties(object_id)
             #properties = {prop['name']: prop['value']['value'] for prop in properties_response['result']['result']}
-            properties = {
-                'current': list(filter(lambda k: k.get('name') == 'value', properties_response.get('result').get('result')))[0].get('value').get('value'),
-                'now': list(filter(lambda k: k.get('name') == 'ariaValueNow', properties_response.get('result').get('result')))[0].get('value').get('value'),
-                'max': list(filter(lambda k: k.get('name') == 'max', properties_response.get('result').get('result')))[0].get('value').get('value'),
-                'time': list(filter(lambda k: k.get('name') == 'time', properties_response.get('result').get('result')))[0].get('value').get('value'),
-                'song': list(filter(lambda k: k.get('name') == 'current_song', properties_response.get('result').get('result')))[0].get('value').get('value'),
-                'artist': list(filter(lambda k: k.get('name') == 'current_artist', properties_response.get('result').get('result')))[0].get('value').get('value'),
-                'cover': list(filter(lambda k: k.get('name') == 'cover', properties_response.get('result').get('result')))[0].get('value').get('value'),
-            }
-            debug(properties = properties)
+            properties = {}
+            while 1:
+                try:
+                    properties = {
+                        'current': list(filter(lambda k: k.get('name') == 'value', properties_response.get('result').get('result')))[0].get('value').get('value'),
+                        'now': list(filter(lambda k: k.get('name') == 'ariaValueNow', properties_response.get('result').get('result')))[0].get('value').get('value'),
+                        'max': list(filter(lambda k: k.get('name') == 'max', properties_response.get('result').get('result')))[0].get('value').get('value'),
+                        'time': list(filter(lambda k: k.get('name') == 'time', properties_response.get('result').get('result')))[0].get('value').get('value'),
+                        'song': list(filter(lambda k: k.get('name') == 'current_song', properties_response.get('result').get('result')))[0].get('value').get('value'),
+                        'artist': list(filter(lambda k: k.get('name') == 'current_artist', properties_response.get('result').get('result')))[0].get('value').get('value'),
+                        'cover': list(filter(lambda k: k.get('name') == 'cover', properties_response.get('result').get('result')))[0].get('value').get('value'),
+                    }
+                    debug(properties = properties)
+                    break
+                except:
+                    pass
             return properties
         else:
             return None
