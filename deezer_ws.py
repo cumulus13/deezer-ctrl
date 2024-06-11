@@ -2,6 +2,7 @@ import asyncio
 import os
 import traceback
 
+import make_colors
 import websockets
 import json
 from pydebugger.debug import debug
@@ -59,6 +60,7 @@ class DeezerController:
                 break
             except:
                 time.sleep(1)
+                
         return await future
 
     async def evaluate_script(self, script):
@@ -109,9 +111,17 @@ class DeezerController:
                 const remaining_time = document.querySelector('p[data-testid="remaining_time"]');
                 const current_play_song = document.querySelector('p[data-testid="item_title"]');
                 const current_play_artist = document.querySelector('p[data-testid="item_subtitle"]');
+                //const current_play_album = document.querySelector('h2[class="chakra-heading css-1hhrzpx"]');
+                const current_play_album = document.querySelector('meta[itemprop="name"]');
+                const current_status = document.querySelector('button[data-testid="play_button_pause"]');
+                let state = 'pause';
                 let current_play_cover = null;
                 if (current_play_song) {
                     current_play_cover = document.querySelector(`img[alt="${current_play_song.innerText}"]`);
+                }
+                
+                if (current_status) {
+                    state = 'play'
                 }
                 if (progressBar) {
                     return {
@@ -121,7 +131,10 @@ class DeezerController:
                         time: remaining_time ? remaining_time.innerText : null,
                         current_song: current_play_song ? current_play_song.innerText : null,
                         current_artist: current_play_artist ? current_play_artist.innerText : null,
+                        //current_album: current_play_album ? current_play_album.innerText : null,
+                        current_album: current_play_album ? current_play_album.content : null,
                         cover: current_play_cover ? current_play_cover.src : null,
+                        state: current_status ? state : null
                     };
                 } else {
                     return null;
@@ -147,7 +160,9 @@ class DeezerController:
                         'time': list(filter(lambda k: k.get('name') == 'time', properties_response.get('result').get('result')))[0].get('value').get('value'),
                         'song': list(filter(lambda k: k.get('name') == 'current_song', properties_response.get('result').get('result')))[0].get('value').get('value'),
                         'artist': list(filter(lambda k: k.get('name') == 'current_artist', properties_response.get('result').get('result')))[0].get('value').get('value'),
+                        'album': list(filter(lambda k: k.get('name') == 'current_album', properties_response.get('result').get('result')))[0].get('value').get('value'),
                         'cover': list(filter(lambda k: k.get('name') == 'cover', properties_response.get('result').get('result')))[0].get('value').get('value'),
+                        'state': list(filter(lambda k: k.get('name') == 'state', properties_response.get('result').get('result')))[0].get('value').get('value'),
                     }
                     debug(properties = properties)
                     break
@@ -157,8 +172,8 @@ class DeezerController:
         else:
             return None
 
-async def main():
-    websocket_url = "ws://127.0.0.1:9222/devtools/page/89EC7900019308E752BEAE72C9AD378E"
+async def main(_id = "89EC7900019308E752BEAE72C9AD378E"):
+    websocket_url = f"ws://127.0.0.1:9222/devtools/page/{_id}"
     controller = DeezerController(websocket_url)
     await controller.connect()
     
@@ -189,53 +204,67 @@ async def main():
         if progress_data:
             current_song = progress_data['song']
             current_artist = progress_data['artist']
+            current_album = progress_data['album']
             
             # Clear previous panel and print updated info
             console.clear()
-            info_panel = Panel(f"Current song: [bold]{current_song}[/bold]\nArtist: [bold]{current_artist}[/bold]", title="[bold yellow]Now Playing[/bold yellow]")
+            info_panel = Panel(f"Current song: [bold bright_red]{current_song}[/bold bright_red]\nArtist: [bold cyan]{current_artist}[/bold cyan]\nAlbum: [bold chartreuse1]{current_album}[/bold chartreuse1]", title="[bold yellow]Now Playing[/bold yellow]")
             console.print(info_panel)        
 
         # Real-time monitoring of song progress
         while True:
-            progress_data = await controller.get_song_progress()
-            if progress_data:
-                current_song = progress_data['song']
-                current_artist = progress_data['artist']
-                value = float(progress_data['current'])
-                max_value = float(progress_data['max'])
-                remaining_time = progress_data['time']
-                cover_image = progress_data['cover']
-                debug(cover_image = cover_image)
-
-                progress.update(progress_task, completed=value, total=max_value, current_song=f"{current_song} by {current_artist}", time=remaining_time)
-
-                # Clear previous panel and print updated info
-                #console.clear()
-                #info_panel = Panel(f"Current song: [bold]{current_song}[/bold]\nArtist: [bold]{current_artist}[/bold]", title="[bold yellow]Now Playing[/bold yellow]")
-                #console.print(info_panel)
-
-                # Check if the song has changed
-                if current_song != previous_song:
-                    # Send a notification
-                    growl.notify(
-                        noteType="Song Change",
-                        title="Deezer - Now Playing",
-                        description=f"{current_song} by {current_artist}",
-                        icon=requests.get(cover_image).content, 
-                        sticky=False,
-                        priority=1,
-                    )
-                    previous_song = current_song
+            try:
+                progress_data = await controller.get_song_progress()
+                if progress_data:
+                    current_song = progress_data['song']
+                    current_artist = progress_data['artist']
+                    current_album = progress_data['album']
+                    value = float(progress_data['current'])
+                    max_value = float(progress_data['max'])
+                    remaining_time = progress_data['time']
+                    cover_image = progress_data['cover']
+                    debug(cover_image = cover_image)
+    
+                    progress.update(progress_task, completed=value, total=max_value, current_song=f"{current_song} by {current_artist}", current_album = current_album, time=remaining_time)
+    
                     # Clear previous panel and print updated info
-                    console.clear()
-                    info_panel = Panel(f"Current song: [bold]{current_song}[/bold]\nArtist: [bold]{current_artist}[/bold]", title="[bold yellow]Now Playing[/bold yellow]")
-                    console.print(info_panel)
-
-
+                    #console.clear()
+                    #info_panel = Panel(f"Current song: [bold]{current_song}[/bold]\nArtist: [bold]{current_artist}[/bold]", title="[bold yellow]Now Playing[/bold yellow]")
+                    #console.print(info_panel)
+    
+                    # Check if the song has changed
+                    if current_song != previous_song:
+                        # Send a notification
+                        growl.notify(
+                            noteType="Song Change",
+                            title="Deezer - Now Playing",
+                            description=f"{current_song} by {current_artist} - {current_album}",
+                            icon=requests.get(cover_image).content, 
+                            sticky=False,
+                            priority=1,
+                        )
+                        previous_song = current_song
+                        # Clear previous panel and print updated info
+                        console.clear()
+                        info_panel = Panel(f"Current song: [bold bright_red]{current_song}[/bold bright_red]\nArtist: [bold cyan]{current_artist}[/bold cyan]\nAlbum: [bold chartreuse1]{current_album}[/bold chartreuse1]", title="[bold yellow]Now Playing[/bold yellow]")
+                        console.print(info_panel)
+    
+            except KeyboardInterrupt:
+                print(make_colors("exit ... !", 'lw', 'bl'))
+                sys.exit()
+            except:
+                print(make_colors(traceback.format_exc()), 'lw', 'r')
+                
             await asyncio.sleep(1)  # Adjust the interval as needed
 
-def start():
-    asyncio.get_event_loop().run_until_complete(main())
+def start(_id = "89EC7900019308E752BEAE72C9AD378E"):
+    while 1:
+        try:
+            asyncio.get_event_loop().run_until_complete(main(_id))
+            break
+        except Exception as e:
+            print("Loop error:", str(e))
+        time.sleep(1)
 
 if __name__ == '__main__':
     try:
@@ -244,3 +273,4 @@ if __name__ == '__main__':
     except KeyboardInterrupt:
         sys.exit()
 
+        

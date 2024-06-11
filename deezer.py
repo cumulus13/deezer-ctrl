@@ -8,7 +8,7 @@ import requests
 import argparse
 from bs4 import BeautifulSoup as bs
 from make_colors import make_colors
-import re
+import re, time
 from urllib.parse import quote
 try:
     from . import deezer_ws
@@ -22,6 +22,7 @@ class Deezer(object):
     URL = CONFIG.get_config('general', 'url', f"http://127.0.0.1:{PORT}") or f"http://127.0.0.1:{PORT}"
     BROWSER = pychrome.Browser(url=URL)
     TAB = None
+    ID = None
     
     def __init__(self, url: str | None = None, configname: str | None = None, port: int | None = 9222) -> None:
         self.URL = url or self.URL
@@ -34,6 +35,7 @@ class Deezer(object):
         a = requests.get(f"{self.URL}/json").json()
         debug(json = a)
         tab_id = list(filter(lambda k: '- Deezer' in k['title'], a))[0].get('id')
+        self.ID = tab_id
         debug(tab_id = tab_id)
         
         # Get the list of open tabs
@@ -51,8 +53,8 @@ class Deezer(object):
         return tab
         
     @classmethod
-    def play(self):
-        tab = self.TAB or self.find_deezer_tab()
+    def play(self, tab = None):
+        tab = tab or self.TAB or self.find_deezer_tab()
         tab.start()
         script = """document.querySelector('button[data-testid="play_button_play"]').click();"""
         result = tab.Runtime.evaluate(expression=script)
@@ -60,8 +62,8 @@ class Deezer(object):
         return result['result']
     
     @classmethod
-    def pause(self):
-        tab = self.TAB or self.find_deezer_tab()
+    def pause(self, tab = None):
+        tab = tab or self.TAB or self.find_deezer_tab()
         tab.start()
         script = """document.querySelector('button[data-testid="play_button_pause"]').click();"""
         result = tab.Runtime.evaluate(expression=script)
@@ -69,8 +71,8 @@ class Deezer(object):
         return result['result']
     
     @classmethod
-    def next(self):
-        tab = self.TAB or self.find_deezer_tab()
+    def next(self, tab = None):
+        tab = tab or self.TAB or self.find_deezer_tab()
         tab.start()
         script = """document.querySelector('button[data-testid="next_track_button"]').click();"""
         result = tab.Runtime.evaluate(expression=script)
@@ -78,8 +80,8 @@ class Deezer(object):
         return result['result']
     
     @classmethod
-    def previous(self):
-        tab = self.TAB or self.find_deezer_tab()
+    def previous(self, tab = None):
+        tab = tab or self.TAB or self.find_deezer_tab()
         tab.start()
         script = """document.querySelector('button[data-testid="previous_track_button"]').click();"""
         result = tab.Runtime.evaluate(expression=script)
@@ -87,8 +89,8 @@ class Deezer(object):
         return result['result']
     
     @classmethod
-    def repeat(self):
-        tab = self.TAB or self.find_deezer_tab()
+    def repeat(self, tab = None):
+        tab = tab or self.TAB or self.find_deezer_tab()
         tab.start()
         script = """document.querySelector('button[data-testid="repeat_button_all"]').click();"""
         result = tab.Runtime.evaluate(expression=script)
@@ -97,11 +99,11 @@ class Deezer(object):
         
     
     @classmethod
-    def get_repeat_status(self, repeat_type = None):
+    def get_repeat_status(self, repeat_type = None, tab = None):
         '''
             @repeat_type :option:str "all", "one", "off" 
         '''
-        tab = self.TAB or self.find_deezer_tab()
+        tab = tab or self.TAB or self.find_deezer_tab()
         tab.start()
         script = """document.querySelector('button[data-testid*="repeat_button_"]').getAttribute('data-testid');"""
         result = tab.Runtime.evaluate(expression=script)
@@ -145,8 +147,8 @@ class Deezer(object):
         return result['result']
     
     @classmethod
-    def reload(self):
-        tab = self.TAB or self.find_deezer_tab()
+    def reload(self, tab = None):
+        tab = tab or self.TAB or self.find_deezer_tab()
         debug(tab = tab)    
         debug(tab_status = tab.status_started)    
         debug(dir_tab = dir(tab))
@@ -155,7 +157,7 @@ class Deezer(object):
         tab.Page.reload(ignoreCache=True)
         
     @classmethod
-    def play_song(self, aria_label):
+    def play_song(self, aria_label, tab = None):
         if aria_label.isdigit():
             all_title = self.get_current_playlist(interactive=False)
             debug(all_title = all_title)
@@ -164,7 +166,7 @@ class Deezer(object):
             else:
                 print(make_colors("Invalid Number !", 'lw', 'r'))
                 
-        tab = self.TAB or self.find_deezer_tab()
+        tab = tab or self.TAB or self.find_deezer_tab()
         debug(tab = tab)    
         debug(tab_status = tab.status_started)    
         debug(dir_tab = dir(tab))
@@ -179,8 +181,8 @@ class Deezer(object):
         return result
     
     @classmethod
-    def get_current_playlist(self, interactive = True) -> bs:
-        tab = self.TAB or self.find_deezer_tab()
+    def get_current_playlist(self, interactive = True, tab = None) -> bs:
+        tab = tab or self.TAB or self.find_deezer_tab()
         tab.start()
         
         script = """
@@ -207,7 +209,12 @@ class Deezer(object):
         debug(data = data)
         
         playlist = []
-        b = bs(data, 'lxml')
+        while 1:
+            try:
+                b = bs(data, 'lxml')
+                break
+            except:
+                time.sleep(1)
         all_div = b.find_all('div', {'class': re.compile('JIYRe'),})
         debug(all_div = all_div)
         
@@ -242,16 +249,22 @@ class Deezer(object):
                 
                 n += 1
             
-            q = input(make_colors("Select number to play:", 'lw', 'bl') + " ")
+            q = input(
+                make_colors("Select number to play, ", 'lw', 'bl') + ", " + \
+                make_colors("s = to play from pause state", 'b', 'ly') + " : "
+            )
+            
             if q and q.isdigit() and int(q) <= len(playlist):
                 title_selected = playlist[int(q) - 1].get('title')
                 self.play_song(title_selected)
+            elif q and q.lower().strip() == 's':
+                self.play()
         
         return playlist
     
     @classmethod
-    def get_current_playlist_page(self, interactive = True) -> bs:
-        tab = self.TAB or self.find_deezer_tab()
+    def get_current_playlist_page(self, interactive = True, tab = None) -> bs:
+        tab = tab or self.TAB or self.find_deezer_tab()
         tab.start()
         script = """document.querySelector('.ZOZXb').innerHTML;"""
         result = tab.Runtime.evaluate(expression=script)
@@ -281,9 +294,9 @@ class Deezer(object):
         return all_title
     
     @classmethod
-    def search(self, text):
+    def search(self, text, tab = None):
         #still not working (any idea ?)
-        tab = self.TAB or self.find_deezer_tab()
+        tab = tab or self.TAB or self.find_deezer_tab()
         tab.start()
         url = f'https://www.deezer.com/search/{quote(text.strip())}'
         ##tab.Page.navigate(url = f'https://www.deezer.com/search/{quote(text.strip())}')
@@ -366,7 +379,8 @@ class Deezer(object):
                 elif args.repeat == "0" or args.repeat == "off":
                     self.get_repeat_status('off')
             elif args.monitor:
-                deezer_ws.start()
+                self.find_deezer_tab()
+                deezer_ws.start(self.ID)
             elif args.reload:
                 self.reload()
     
