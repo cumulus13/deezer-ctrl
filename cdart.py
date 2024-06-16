@@ -18,6 +18,65 @@ from asyncqt import QEventLoop
 from pathlib import Path
 from unidecode import unidecode
 import re
+from make_colors import make_colors
+import traceback
+from xnotify import notify
+from configset import configset
+
+class LastFM(object):
+    
+    CONFIGNAME = str(Path(__file__).parent / 'cdart.ini')
+    CONFIG = configset(CONFIGNAME)
+
+
+    @classmethod
+    def search_track(self, artist, track):
+        url = 'http://ws.audioscrobbler.com/2.0/'
+        params = {
+            'method': 'track.search',
+            'track': track,
+            'artist': artist,
+            'api_key': self.CONFIG.get_config('lastfm', 'api') or "c725344c28768a57a507f014bdaeca79", 
+            'format': 'json'
+        }
+        
+        response = requests.get(url, params=params)
+        data = response.json()
+        if data['results']['trackmatches']['track']:
+            return data['results']['trackmatches']['track'][0]
+        else:
+            return None
+        
+    @classmethod
+    def get_track_info(self, artist, track):
+        track_info = self.search_track(artist, track)
+        if track_info:
+            track_name = track_info['name']
+            artist_name = track_info['artist']
+            url = 'http://ws.audioscrobbler.com/2.0/'
+            params = {
+                'method': 'track.getInfo',
+                'track': track_name,
+                'artist': artist_name,
+                'api_key': self.CONFIG.get_config('lastfm', 'api') or "c725344c28768a57a507f014bdaeca79", 
+                'format': 'json'
+            }
+            response = requests.get(url, params=params)
+            data = response.json()
+            debug(data = data)
+            if 'track' in data and 'album' in data['track']:
+                album_info = data['track']['album']
+                return {
+                    'album_name': album_info['title'],
+                    'album_url': album_info['url'],
+                    'album_image': album_info['image'][-1]['#text'] if album_info['image'] else None
+                }
+        
+        return {
+            'album_name': '',
+            'album_url': '',
+            'album_image': str(Path(__file__).parent / 'default_cover.png')
+        }        
 
 class ScrollingLabel(QLabel):
     
@@ -79,6 +138,9 @@ class MusicPlayerGUI(QWidget):
         #super().__init__()
         super(MusicPlayerGUI, self).__init__()
         
+        self.CONFIGNAME = str(Path(__file__).parent / 'cdart.ini')
+        self.CONFIG = configset(self.CONFIGNAME)
+        
         self.settings = QSettings("CUMULUS13", "Deezer Art")
         self.loadSettings()
         
@@ -112,16 +174,31 @@ class MusicPlayerGUI(QWidget):
         asyncio.set_event_loop(loop)
     
         async def task():
+            last_song = ''
             await self.deezer_controller.connect()
             while True:
                 data = await self.deezer_controller.get_song_progress()
-                if data is not None: self.update_ui_signal.emit(data)  # Emit signal with the new data
+                debug(cover = data.get('cover'))
+                if data is not None:
+                    self.update_ui_signal.emit(data)  # Emit signal with the new data
+                    if data.get('song') != last_song:
+                        last_song = data.get('song')
+                        notify.send('Deezer CDArt', 'New Song', 'Deezer CDArt', f"{data.get('song')}\n{data.get('artist')}{data.get('album')}", ['New Song'], icon = (self.find_cover_art(data.get('cover'), data) or str(Path(__file__).parent / 'icon.png')))
                 #if data.get('status') == 'pause':
                     #await asyncio.sleep(5)
                 #else:
                 await asyncio.sleep(1)
     
-        loop.run_until_complete(task())    
+        #loop.run_until_complete(task())
+        
+        while 1:
+            try:
+                #loop = asyncio.get_event_loop()
+                loop.run_until_complete(task())
+            except Exception as e:
+                if os.getenv('TRACEBACK') == '1' or self.CONFIG.get_config('debug', 'traceback') == 1:
+                    print(make_colors("ERROR [1]:", 'lw', 'r') + " " + make_colors(traceback.format_exc(), 'lw', 'bl'))
+                
 
     def initUI(self):
         
@@ -215,10 +292,15 @@ class MusicPlayerGUI(QWidget):
             self.show()
             
     def find_cover_art(self, song_path, data):
+        
         if sys.platform == 'win32':
             temp_dir = os.getenv('TEMP') or os.getenv('TMP', str(Path(__file__).parent))
         else:
             temp_dir = os.getenv('TEMP') or os.getenv('TMP', "/tmp")
+            
+        if (Path(temp_dir) / self.normalization_name(data.get('song'))).is_file():
+            debug("song_path is FILE !", debug = 1)
+            return str(Path(temp_dir) / self.normalization_name(data.get('song')))        
                 
         if os.path.isfile(os.path.join(temp_dir, self.normalization_name(data.get('song'))) + ".jpg"):
             return os.path.join(temp_dir, self.normalization_name(data.get('song'))) + ".jpg"
@@ -255,7 +337,38 @@ class MusicPlayerGUI(QWidget):
             
             return str(Path(temp_dir) / self.normalization_name(data.get('song'))) + ext
         else:
-            return self.fetch_cover_lastfm(data.get('artist'), data.get("album"))
+            return self.find_cover_art_lastfm(data)
+        
+    def find_cover_art_lastfm(self, data):
+        api_key = self.CONFIG.get_config('lastfm', 'api') or "c725344c28768a57a507f014bdaeca79"
+        if not data:
+            current_song = self.connect('currentsong')
+            artist = current_song.get('artist')
+            album = current_song.get('album')
+            title = current_song.get('title')
+        else:
+            artist = data.get('artist')
+            album = data.get('album')
+            title = data.get('title')            
+        
+        if artist and album:
+            url = f"http://ws.audioscrobbler.com/2.0/?method=album.getinfo&api_key={api_key}&artist={artist}&album={album}&format=json"
+            a = requests.get(url)
+            if a.status_code == 200:
+                try:
+                    url1 = a.json()['album']['image'][-1]['#text']
+                    temp_path = str(Path(os.getenv('temp', '/tmp')) / Path('temp_cover' + os.path.splitext(url1)[-1]))
+                    with open(temp_path, 'wb') as f:
+                        f.write(requests.get(url1).content)
+                    return temp_path
+                except Exception as e:
+                    print("failed to get cover art from LastFM:", e)
+        
+        if artist and title:
+            cover_from_lastfm = LastFM.get_track_info(artist, title)
+            return cover_from_lastfm.get('album_image')
+            
+        return str(Path(__file__).parent / 'default_cover.png')    
     
     def normalization_name(self, name):
         name0 = name
@@ -346,6 +459,8 @@ class MusicPlayerGUI(QWidget):
         event.accept()
 
 if __name__ == '__main__':
+    print(make_colors("PID:", 'lw', 'bl') + " " + make_colors(os.getpid(), 'lw', 'r'))
+    print(make_colors('Deezer CDArt', 'lw', 'm'))
     app = QApplication(sys.argv)
     ex = MusicPlayerGUI()
     ex.show()
