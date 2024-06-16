@@ -149,7 +149,8 @@ class Ticker:
         self.image = ImageTk.PhotoImage(resized_image)
 
         # Update the canvas with the resized image
-        self.canvas.create_image(0, 0, image=self.image, anchor='nw')
+        self.canvas.delete("image")
+        self.canvas.create_image(0, 0, image=self.image, anchor='nw', tags="image")
 
     def update_ticker(self):
         self.canvas.move("all", -2, 0)  # Move all elements to the left
@@ -226,7 +227,7 @@ class Ticker:
 
         return self.find_cover_art_lastfm()
 
-    def find_cover_art_lastfm(self, data):
+    def find_cover_art_lastfm(self, data=None):
         api_key = self.CONFIG.get_config('lastfm', 'api') or "c725344c28768a57a507f014bdaeca79"
         if not data:
             current_song = self.client.currentsong()
