@@ -69,53 +69,82 @@ class Ticker:
     def __init__(self, root, text=" Welcome to the MPD ticker! "):
         self.CONFIGFILE = str(Path(__file__).parent / "ticker.ini")
         self.CONFIG = configset(self.CONFIGFILE)
-
+    
         self.root = root
         self.root.overrideredirect(True)  # Remove window decorations
         self.root.attributes("-topmost", True)  # Keep window on top initially
         self.load_position()  # Load window position
-
+        self.child_window = None        
+        
         self.style = ttk.Style()
+        
         self.style.configure("Custom.TFrame", background=self.CONFIG.get_config('color', 'background', "#353535"))
-
+    
         # Configure styles for title, album, and artist
         self.title_color = self.CONFIG.get_config('color', 'title', "#00FFFF")
         self.album_color = self.CONFIG.get_config('color', 'album', "#FFFF00")
         self.artist_color = self.CONFIG.get_config('color', 'artist', "#21FF15")
-
-        self.frame = ttk.Frame(root, style="Custom.TFrame")
+        
+        self.title_font = (self.CONFIG.get_config('font', 'title_name', "Helvetica"), self.CONFIG.get_config('font', 'title_size', 14))
+        self.album_font = (self.CONFIG.get_config('font', 'album_name', "Helvetica"), self.CONFIG.get_config('font', 'album_size', 12))
+        self.artist_font = (self.CONFIG.get_config('font', 'artist_name', "Helvetica"), self.CONFIG.get_config('font', 'artis_size', 12))
+    
+        self.frame = ttk.Frame(root, style="Custom.TFrame", padding = 0, borderwidth = 0)
         self.frame.pack(fill=tk.BOTH, expand=True, anchor='n')  # Align to top
-
-        self.canvas = tk.Canvas(self.frame, background=self.CONFIG.get_config('color', 'background', "#353535"))
+    
+        #self.canvas = tk.Canvas(self.frame, background=self.CONFIG.get_config('color', 'background', "#353535"), width=600, height=100)
+        self.canvas = tk.Canvas(self.frame, background=self.CONFIG.get_config('color', 'background', "#353535"), highlightthickness=0, borderwidth=0, width=600, height=100)
         self.canvas.pack(fill=tk.BOTH, expand=True)
-
+    
         self.x = 0  # Starting position of the text
         self.ticker_job = self.root.after(50, self.update_ticker)  # Start the ticker
-
+    
         # Initialize MPD client
         self.client = MPDClient()
         self.connect_to_mpd()
         self.current_song = None
-
+    
         # Start fetching song info
         self.update_song_info()
-
+    
         # Bind keys to quit the application
-        self.root.bind('<Escape>', self.quit)
-        self.root.bind('<q>', self.quit)
-        self.root.bind('<x>', self.quit)
-
+        #self.root.bind('<Escape>', self.quit)
+        #self.root.bind('<q>', self.quit)
+        #self.root.bind('<x>', self.quit)
+        
+        self.root.bind('<Escape>', self.quit_or_close_child)
+        self.root.bind('<q>', self.quit_or_close_child)
+        self.root.bind('<x>', self.quit_or_close_child)        
+    
         # Bind keys to toggle always on top
         self.root.bind('a', self.set_always_on_top)
         self.root.bind('<Shift-A>', self.set_normal)
-
+    
         # Bind window movement to save position
         self.root.bind('<Configure>', self.save_position)
-
+    
         # Bind mouse events for dragging
-        self.frame.bind("<Button-1>", self.start_move)
-        self.frame.bind("<B1-Motion>", self.do_move)
+        self.canvas.bind("<Button-1>", self.start_move)
+        self.canvas.bind("<B1-Motion>", self.do_move)
+    
+    def quit_or_close_child(self, event):
+        if self.child_window is not None:
+            self.close_child()
+        else:
+            self.quit()
+            
+    def start_move(self, event):
+        self.x_offset = event.x
+        self.y_offset = event.y
+    
+    def do_move(self, event):
+        x = self.root.winfo_pointerx() - self.x_offset
+        y = self.root.winfo_pointery() - self.y_offset
+        self.root.geometry(f"+{x}+{y}")
 
+    def schedule_image_resize(self):
+        self.root.after(100, self.resize_image_to_text_height)
+    
     def connect_to_mpd(self):
         try:
             self.client.connect("localhost", 6600)
@@ -139,19 +168,77 @@ class Ticker:
             self.CONFIG.write_config('geometry', 'width', width)
             self.CONFIG.write_config('geometry', 'height', height)
 
+    def update_text_on_canvas(self, image_width):
+        # Ensure the text is overlayed on the image
+        self.canvas.delete("text")
+        # Adjust text coordinates to place it to the left of the resized image with more compact spacing
+        self.canvas.create_text(image_width + 20, 10, text=self.current_song.get('title', 'Unknown Title'), fill=self.title_color, font=self.title_font, anchor='nw', tags="text")
+        self.canvas.create_text(image_width + 20, 23, text=f"Album: {self.current_song.get('album', 'Unknown Album')} ({self.current_song.get('date', 'Unknown Year')})", fill=self.album_color, font=self.album_font, anchor='nw', tags="text")
+        self.canvas.create_text(image_width + 20, 35, text=f"Artist: {self.current_song.get('artist', 'Unknown Artist')}", fill=self.artist_color, font=self.artist_font, anchor='nw', tags="text")
+    
     def resize_image_to_text_height(self):
         self.root.update_idletasks()  # Ensure window is fully rendered
-        # Get the height of the text
-        text_height = self.canvas.winfo_height()
-
-        # Resize the image to match the canvas height
-        resized_image = self.original_image.resize((text_height, text_height), Image.LANCZOS)
+    
+        # Get the height of the text elements
+        text_height = 10 + 20 + 20  # Adjust these values as needed for spacing and font size
+    
+        # Calculate the width and height for the image
+        aspect_ratio = self.original_image.width / self.original_image.height
+        image_height = text_height - 12
+        image_width = int(image_height * aspect_ratio)
+    
+        #print(f"Image size: {image_width}x{image_height}")  # Debugging statement
+    
+        # Resize the image to match the calculated size
+        resized_image = self.original_image.resize((image_width, image_height), Image.LANCZOS)
         self.image = ImageTk.PhotoImage(resized_image)
-
+    
         # Update the canvas with the resized image
         self.canvas.delete("image")
-        self.canvas.create_image(0, 0, image=self.image, anchor='nw', tags="image")
-
+        self.canvas.create_image(10, 10, image=self.image, anchor='nw', tags="image")
+        self.canvas.tag_bind("image", "<Button-1>", self.show_full_image)
+        #print("Image added to canvas")  # Debugging statement
+    
+        # Ensure text is on top of the image
+        self.update_text_on_canvas(image_width)
+        
+    def show_full_image(self, event):
+        if self.child_window is not None:
+            return
+    
+        self.child_window = tk.Toplevel(self.root)
+        self.child_window.title("Full Image")
+        self.child_window.geometry("800x800")
+    
+        # Resize image to fit within 800 pixels
+        aspect_ratio = self.original_image.width / self.original_image.height
+        if self.original_image.width > 800 or self.original_image.height > 800:
+            if self.original_image.width > self.original_image.height:
+                new_width = 800
+                new_height = int(800 / aspect_ratio)
+            else:
+                new_height = 800
+                new_width = int(800 * aspect_ratio)
+        else:
+            new_width = self.original_image.width
+            new_height = self.original_image.height
+    
+        resized_image = self.original_image.resize((new_width, new_height), Image.LANCZOS)
+        self.full_image = ImageTk.PhotoImage(resized_image)
+    
+        label = tk.Label(self.child_window, image=self.full_image)
+        label.pack(expand=True)
+    
+        # Bind keys to close child window
+        self.child_window.bind('<Escape>', self.close_child)
+        self.child_window.bind('<q>', self.close_child)
+        self.child_window.bind('<x>', self.close_child)
+    
+    def close_child(self, event=None):
+        if self.child_window is not None:
+            self.child_window.destroy()
+            self.child_window = None
+    
     def update_ticker(self):
         self.canvas.move("all", -2, 0)  # Move all elements to the left
         bbox = self.canvas.bbox("all")
@@ -159,10 +246,6 @@ class Ticker:
             self.canvas.move("all", self.root.winfo_width(), 0)  # Move it back to the right side
         self.ticker_job = self.root.after(self.CONFIG.get_config('sleep', 'time', 100), self.update_ticker)  # Update ticker every 100 milliseconds
 
-        # Update geometry from config
-        self.load_position()
-        self.root.update()  # Allow event processing
-        
     def normalization_name(self, name):
         name0 = name
         name = name.strip()
@@ -280,7 +363,9 @@ class Ticker:
     def update_image(self):
         try:
             picture_path = self.find_cover_art()
+            #print(f"Picture path: {picture_path}")  # Debugging statement
             self.original_image = Image.open(picture_path)
+            #print(f"Image loaded: {self.original_image}")  # Debugging statement
             self.resize_image_to_text_height()
         except Exception as e:
             print(f"Could not update image: {e}")
@@ -300,18 +385,17 @@ class Ticker:
     def set_normal(self, event):
         self.root.attributes("-topmost", False)
 
-    def start_move(self, event):
-        self.x_offset = event.x
-        self.y_offset = event.y
+    #def start_move(self, event):
+        #self.x_offset = event.x
+        #self.y_offset = self.y_offset = event.y
 
-    def do_move(self, event):
-        x = self.root.winfo_pointerx() - self.x_offset
-        y = self.root.winfo_pointery() - self.y_offset
-        self.root.geometry(f"+{x}+{y}")
+    #def do_move(self, event):
+        #x = self.root.winfo_pointerx() - self.x_offset
+        #y = self.root.winfo_pointery() - self.y_offset
+        #self.root.geometry(f"+{x}+{y}")
 
 if __name__ == "__main__":
     root = tk.Tk()
     text = "TRACK.TITLE\nAlbum: ALBUM\nArtist: ARTIST"
     app = Ticker(root, text)
     root.mainloop()
-
