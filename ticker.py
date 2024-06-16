@@ -73,6 +73,7 @@ class Ticker:
         self.root = root
         self.root.overrideredirect(True)  # Remove window decorations
         self.root.attributes("-topmost", True)  # Keep window on top initially
+        self.root.attributes("-alpha", self.CONFIG.get_config('transparent', 'level', 60) / 100)
         self.load_position()  # Load window position
         self.child_window = None        
         
@@ -115,6 +116,8 @@ class Ticker:
         self.root.bind('<Escape>', self.quit_or_close_child)
         self.root.bind('<q>', self.quit_or_close_child)
         self.root.bind('<x>', self.quit_or_close_child)        
+        
+        self.root.bind('<s>', self.show_full_image)        
     
         # Bind keys to toggle always on top
         self.root.bind('a', self.set_always_on_top)
