@@ -22,6 +22,8 @@ from make_colors import make_colors
 import traceback
 from xnotify import notify
 from configset import configset
+import deezer_art
+import traceback
 
 class LastFM(object):
     
@@ -141,6 +143,8 @@ class MusicPlayerGUI(QWidget):
         self.CONFIGNAME = str(Path(__file__).parent / 'cdart.ini')
         self.CONFIG = configset(self.CONFIGNAME)
         
+        self.ALBUM = {}
+        
         self.settings = QSettings("CUMULUS13", "Deezer Art")
         self.loadSettings()
         
@@ -178,12 +182,31 @@ class MusicPlayerGUI(QWidget):
             await self.deezer_controller.connect()
             while True:
                 data = await self.deezer_controller.get_song_progress()
-                debug(cover = data.get('cover'))
-                if data is not None:
+                if data:
+                    debug(cover = data.get('cover'))
+                    album = data.get('album')
+                    if not album:
+                        if self.ALBUM.get(data.get('artist')):
+                            if self.ALBUM.get(data.get('artist')).get(data.get('song')):
+                                album = self.ALBUM.get(data.get('artist')).get(data.get('song')).get('album')
+                    if not album:
+                        album = deezer_art.get_info(data.get('artist'), data.get('song'))
+                        if album and album.get('data'):
+                            album = album.get('data')[0].get('album').get('title')
+                            update_data = {data.get('artist'): {data.get('song'): {'album': album,},}}
+                            if not self.ALBUM.get(data.get('artist')): self.ALBUM.update({data.get('artist'): {},})
+                            self.ALBUM.get(data.get('artist')).update(
+                                update_data.get(data.get('artist'))
+                            )
+                            
                     self.update_ui_signal.emit(data)  # Emit signal with the new data
+                    debug(album_1 = album)
+                    debug(self_ALBUM_1 = self.ALBUM)
                     if data.get('song') != last_song:
                         last_song = data.get('song')
-                        notify.send('Deezer CDArt', 'New Song', 'Deezer CDArt', f"{data.get('song')}\n{data.get('artist')}{data.get('album')}", ['New Song'], icon = (self.find_cover_art(data.get('cover'), data) or str(Path(__file__).parent / 'icon.png')))
+                        debug(album_send_to_growl = album)
+                        notify.send('Deezer CDArt', 'New Song', 'Deezer CDArt', f"{data.get('song')}\n{data.get('artist')}\n{(album or '')}", ['New Song'], icon = (self.find_cover_art(data.get('cover'), data) or str(Path(__file__).parent / 'icon.png')))
+                        print()
                 #if data.get('status') == 'pause':
                     #await asyncio.sleep(5)
                 #else:
@@ -196,6 +219,7 @@ class MusicPlayerGUI(QWidget):
                 #loop = asyncio.get_event_loop()
                 loop.run_until_complete(task())
             except Exception as e:
+                print(make_colors("ERROR:", 'lw', 'r') + " " + make_colors(e, 'lw', 'bl'))
                 if os.getenv('TRACEBACK') == '1' or self.CONFIG.get_config('debug', 'traceback') == 1:
                     print(make_colors("ERROR [1]:", 'lw', 'r') + " " + make_colors(traceback.format_exc(), 'lw', 'bl'))
                 
@@ -292,14 +316,14 @@ class MusicPlayerGUI(QWidget):
             self.show()
             
     def find_cover_art(self, song_path, data):
-        
+            
         if sys.platform == 'win32':
             temp_dir = os.getenv('TEMP') or os.getenv('TMP', str(Path(__file__).parent))
         else:
             temp_dir = os.getenv('TEMP') or os.getenv('TMP', "/tmp")
             
         if (Path(temp_dir) / self.normalization_name(data.get('song'))).is_file():
-            debug("song_path is FILE !", debug = 1)
+            debug("song_path is FILE !")
             return str(Path(temp_dir) / self.normalization_name(data.get('song')))        
                 
         if os.path.isfile(os.path.join(temp_dir, self.normalization_name(data.get('song'))) + ".jpg"):
@@ -337,41 +361,53 @@ class MusicPlayerGUI(QWidget):
             
             return str(Path(temp_dir) / self.normalization_name(data.get('song'))) + ext
         else:
-            return self.find_cover_art_lastfm(data)
+            cover = deezer_art.get_album_art(data.get('artist'), data.get('title'), data.get('album'), True)
+            if not cover:
+                return self.find_cover_art_lastfm(data)
+        return str(Path(__file__).parent / 'default_cover.png')    
         
     def find_cover_art_lastfm(self, data):
-        api_key = self.CONFIG.get_config('lastfm', 'api') or "c725344c28768a57a507f014bdaeca79"
-        if not data:
-            current_song = self.connect('currentsong')
-            artist = current_song.get('artist')
-            album = current_song.get('album')
-            title = current_song.get('title')
-        else:
-            artist = data.get('artist')
-            album = data.get('album')
-            title = data.get('title')            
+        if os.path.isfile(str(Path(os.getenv('temp', '/tmp')) / Path('lastfm_' + self.normalization_name(data.get('title')) + ".jpg"))):
+            return str(Path(os.getenv('temp', '/tmp')) / Path(self.normalization_name(data.get('title')) + ".jpg"))
+        elif os.path.isfile(str(Path(os.getenv('temp', '/tmp')) / Path('lastfm_' + self.normalization_name(data.get('title')) + ".png"))):
+            return str(Path(os.getenv('temp', '/tmp')) / Path(self.normalization_name(data.get('title')) + ".png"))
+        
+        artist = data.get('artist') or ''
+        album = data.get('album') or ''
+        track = data.get('song') or ''
         
         if artist and album:
+            api_key = self.CONFIG.get_config('lastfm', 'api') or "c725344c28768a57a507f014bdaeca79"
             url = f"http://ws.audioscrobbler.com/2.0/?method=album.getinfo&api_key={api_key}&artist={artist}&album={album}&format=json"
             a = requests.get(url)
             if a.status_code == 200:
                 try:
                     url1 = a.json()['album']['image'][-1]['#text']
-                    temp_path = str(Path(os.getenv('temp', '/tmp')) / Path('temp_cover' + os.path.splitext(url1)[-1]))
+                    ext = os.path.splitext(url1)[-1]
+                    if not ext in ['.png', '.jpg', '.jpeg']:
+                        ext = ".png"
+                    temp_path = str(Path(os.getenv('temp', '/tmp')) / Path('lastfm_' + self.normalization_name(data.get('title')) + ext))
                     with open(temp_path, 'wb') as f:
                         f.write(requests.get(url1).content)
                     return temp_path
                 except Exception as e:
                     print("failed to get cover art from LastFM:", e)
-        
-        if artist and title:
-            cover_from_lastfm = LastFM.get_track_info(artist, title)
-            return cover_from_lastfm.get('album_image')
-            
-        return str(Path(__file__).parent / 'default_cover.png')    
+    
+        elif artist and track:
+            cover_data = LastFM.get_track_info(artist, track)
+            if cover_data.get('album_image')[:4] == "http" and "://" in cover_data.get('album_image'):
+                ext = os.path.splitext(url1)[-1]
+                cover_stream = requests.get(cover_data.get('album_image'))
+                if not ext and cover_stream.headers.get('content-type'):
+                    ext = mimetypes.guess_extension(cover_stream.get('content-type'))
+                if not ext in ['.png', '.jpg', '.jpeg']: ext = ".png"
+                temp_path = str(Path(os.getenv('temp', '/tmp')) / Path('lastfm_' + self.normalization_name(data.get('title')) + ext))
+                with open(temp_path, 'wb') as f:
+                    f.write(cover_stream.content)
+                return temp_path
+        return False
     
     def normalization_name(self, name):
-        name0 = name
         name = name.strip()
         name = re.sub("\: ", " - ", name)
         name = re.sub("\?|\*", "", name)
@@ -409,10 +445,27 @@ class MusicPlayerGUI(QWidget):
                 #current_song = data.get('song')
                 #album = current_song.get('album') or ''
                 #track_info = f"{current_song.get('title', 'Unknown Title')}\n{current_song.get('artist', 'Unknown Artist')}\n{album}"
-                
+                album = data.get('album')
+                if not album:
+                    if self.ALBUM.get(data.get('artist')):
+                        if self.ALBUM.get(data.get('artist')).get(data.get('song')):
+                            album = self.ALBUM.get(data.get('artist')).get(data.get('song')).get('album')
+                if not album:
+                    album = deezer_art.get_info(data.get('artist'), data.get('song'))
+                    if album and album.get('data'):
+                        album = album.get('data')[0].get('album').get('title')
+                        update_data = {data.get('artist'): {data.get('song'): {'album': album,},}}
+                        if not self.ALBUM.get(data.get('artist')): self.ALBUM.update({data.get('artist'): {},})
+                        self.ALBUM.get(data.get('artist')).update(
+                            update_data.get(data.get('artist'))
+                        )
+                        
+                debug(album_0 = album)
+                debug(self_ALBUM_0 = self.ALBUM)                
+                    
                 self.titleLabel.setText(data.get('song', 'Unknown Title'))
                 self.artistLabel.setText(data.get('artist', 'Unknown Artist'))
-                self.albumLabel.setText(data.get('album', 'Unknown Album'))            
+                self.albumLabel.setText((album or 'Unknown Album'))            
                 #self.trackDetails.setText(track_info)
     
                 if data['state'] == 'play':
@@ -421,10 +474,12 @@ class MusicPlayerGUI(QWidget):
                     #self.progressBar.setValue(int(((total_time - elapsed_time) / total_time) * 1000))  # Update progress bar based on song progress
                     self.progressBar.setValue(int((elapsed_time / total_time) * 1000))
     
-                cover_art_path = self.find_cover_art(data.get('cover', str(Path(__file__).parent / 'default_cover.png')), data)
+                cover_art_path = self.find_cover_art(data.get('cover'), data)
                 self.albumCover.setPixmap(QPixmap(cover_art_path).scaled(200, 200))
             except Exception as e:
                 print("Failed to fetch or update track info:", e)
+                #if os.getenv('TRACEBACK') == "1":
+                print(traceback.format_exc())
 
     #def startTimer(self):
         #self.timer = QTimer(self)

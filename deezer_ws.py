@@ -160,7 +160,7 @@ class DeezerController:
                         'time': list(filter(lambda k: k.get('name') == 'time', properties_response.get('result').get('result')))[0].get('value').get('value'),
                         'song': list(filter(lambda k: k.get('name') == 'current_song', properties_response.get('result').get('result')))[0].get('value').get('value'),
                         'artist': list(filter(lambda k: k.get('name') == 'current_artist', properties_response.get('result').get('result')))[0].get('value').get('value'),
-                        'album': list(filter(lambda k: k.get('name') == 'current_album', properties_response.get('result').get('result')))[0].get('value').get('value'),
+                        'album': list(filter(lambda k: k.get('name') == 'current_album', properties_response.get('result').get('result')))[0].get('value').get('value') or '',
                         'cover': list(filter(lambda k: k.get('name') == 'cover', properties_response.get('result').get('result')))[0].get('value').get('value'),
                         'state': list(filter(lambda k: k.get('name') == 'state', properties_response.get('result').get('result')))[0].get('value').get('value'),
                     }

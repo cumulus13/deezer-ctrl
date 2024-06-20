@@ -11,6 +11,10 @@ import mimetypes
 import re
 from unidecode import unidecode
 import requests
+from xnotify import notify
+import time
+from multiprocessing import Process
+import traceback
 
 class LastFM(object):
     CONFIGNAME = str(Path(__file__).parent / 'ticker_job.ini')
@@ -69,6 +73,12 @@ class Ticker:
     def __init__(self, root, text=" Welcome to the MPD ticker! "):
         self.CONFIGFILE = str(Path(__file__).parent / "ticker.ini")
         self.CONFIG = configset(self.CONFIGFILE)
+        
+        self.client = MPDClient()
+        self.process = Process(target=self.connection_watch)
+        self.process.start()
+        
+        self.notify = notify('MPD-Ticker', ['New Song'])
     
         self.root = root
         self.root.overrideredirect(True)  # Remove window decorations
@@ -101,7 +111,6 @@ class Ticker:
         self.ticker_job = self.root.after(50, self.update_ticker)  # Start the ticker
     
         # Initialize MPD client
-        self.client = MPDClient()
         self.connect_to_mpd()
         self.current_song = None
     
@@ -148,11 +157,45 @@ class Ticker:
     def schedule_image_resize(self):
         self.root.after(100, self.resize_image_to_text_height)
     
+    def connection_watch(self):
+        while True:
+            try:
+                self.client.connect(self.CONFIG.get_config('mpd', 'host', '127.0.0.1') or os.getenv('MPD_HOST', '127.0.0.1'), self.CONFIG.get_config('mpd', 'port', 6600) or int(os.getenv('MPD_PORT', 6600)))
+                status = self.client.status()
+                print(status)
+            except:
+                try:
+                    self.client.disconnect()
+                except:
+                    pass
+                self.client.connect(self.CONFIG.get_config('mpd', 'host', '127.0.0.1') or os.getenv('MPD_HOST', '127.0.0.1'), self.CONFIG.get_config('mpd', 'port', 6600) or int(os.getenv('MPD_PORT', 6600)))
+            time.sleep(self.CONFIG.get_config('watch', 'sleep', '5') or 5)
+            
     def connect_to_mpd(self):
-        try:
-            self.client.connect("localhost", 6600)
-        except Exception as e:
-            print(f"Could not connect to MPD: {e}")
+        while 1:
+            try:
+                self.client.connect(self.CONFIG.get_config('mpd', 'host', '127.0.0.1') or os.getenv('MPD_HOST', '127.0.0.1'), self.CONFIG.get_config('mpd', 'port', 6600) or int(os.getenv('MPD_PORT', 6600)))
+                status = self.client.status()
+                #print(status)
+                break
+            except Exception as e:
+                if str(e) != 'Already connected':
+                    print(f"{make_colors('Could not connect to MPD', 'lw','r')} {make_colors('[1]', 'b', 'ly')}: {make_colors(e, 'lw','r')}")
+                if os.getenv('traceback') == '1': print(traceback.format_exc())                    
+                try:
+                    self.client.currentsong()
+                except:
+                    try:
+                        self.client.disconnect()
+                    except:
+                        if os.getenv('traceback') == '1': print(traceback.format_exc())
+                    try:
+                        self.client.connect(self.CONFIG.get_config('mpd', 'host', '127.0.0.1') or os.getenv('MPD_HOST', '127.0.0.1'), self.CONFIG.get_config('mpd', 'port', 6600) or int(os.getenv('MPD_PORT', 6600)))
+                        break
+                    except Exception as e:
+                        print(f"{make_colors('Could not connect to MPD', 'lw','r')} {make_colors('[2]', 'b', 'ly')}: {make_colors(e, 'lw','r')}")
+
+            time.sleep(self.CONFIG.get_config('reconnection', 'sleep', '1') or 1)
 
     def load_position(self):
         if self.CONFIG.get_config('geometry', 'x') and self.CONFIG.get_config('geometry', 'y') and self.CONFIG.get_config('geometry', 'width') and self.CONFIG.get_config('geometry', 'height'):
@@ -243,6 +286,7 @@ class Ticker:
             self.child_window = None
     
     def update_ticker(self):
+        self.root.attributes("-alpha", self.CONFIG.get_config('transparent', 'level', 60) / 100)
         self.canvas.move("all", -2, 0)  # Move all elements to the left
         bbox = self.canvas.bbox("all")
         if bbox[2] < 0:  # If the text has moved off the screen
@@ -347,6 +391,10 @@ class Ticker:
     def update_song_info(self):
         try:
             song = self.client.currentsong()
+        except Exception as e:
+            print(f"Could not fetch song info: {e}")
+            self.connect_to_mpd()  # Try to reconnect if fetching failed
+        try:
             status = self.client.status()
             status_str = ''
             if status.get('state') != 'play':
@@ -354,10 +402,11 @@ class Ticker:
             if song != self.current_song:
                 self.current_song = song
                 self.canvas.delete("text")
-                self.canvas.create_text(10, 10, text=song.get('title', 'Unknown Title'), fill=self.title_color, anchor='nw', tags="text")
+                self.canvas.create_text(10, 10, text=song.get('title', 'Unknown Title') + status_str, fill=self.title_color, anchor='nw', tags="text")
                 self.canvas.create_text(10, 30, text=f"Album: {song.get('album', 'Unknown Album')} ({song.get('date', 'Unknown Year')})", fill=self.album_color, anchor='nw', tags="text")
                 self.canvas.create_text(10, 50, text=f"Artist: {song.get('artist', 'Unknown Artist')}", fill=self.artist_color, anchor='nw', tags="text")
                 self.update_image()
+                self.notify.send(title = 'MPD Ticker', message = f"{song.get('title')}\n{song.get('album')}\n{song.get('artist')}\n", icon = self.find_cover_art())
             self.root.after(10000, self.update_song_info)  # Update every 10 seconds
         except Exception as e:
             print(f"Could not fetch song info: {e}")
@@ -378,6 +427,11 @@ class Ticker:
         return "icon.png"  # Replace with actual picture path
 
     def quit(self, event=None):
+        self.process.terminate()
+        try:
+            self.client.disconnect()
+        except:
+            pass
         self.root.after_cancel(self.ticker_job)  # Cancel the scheduled update_ticker call
         self.save_position()  # Save position on quit
         self.root.destroy()
