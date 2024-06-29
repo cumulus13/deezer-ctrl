@@ -1,9 +1,7 @@
 import tkinter as tk
-
 from tkinter import ttk
 from PIL import Image, ImageTk
 import os
-import sys
 from pathlib import Path
 from configset import configset
 from mpd import MPDClient
@@ -15,106 +13,13 @@ from unidecode import unidecode
 import requests
 from xnotify import notify
 import time
-from multiprocessing import Process, Manager
-#from threading import Thread
-#import queue
+from multiprocessing import Process
 import traceback
 from urllib.parse import quote
 import deezer_art
 from datetime import datetime
 import bitmath
-#import mpd
-
-CONFIGFILE = str(Path(__file__).parent / "ticker.ini")
-CONFIG = configset(CONFIGFILE)
-
-def logger(message, status="info"):
-    if isinstance(message, str): message = bytes(message, encoding = "utf-8")
-    HOST = os.getenv('MPD_HOST') or CONFIG.get_config('mpd', 'host', '127.0.0.1')
-    if HOST in ['127.0.0.1', 'localhost', '::1']:
-        HOST = ''
-    else:
-        HOST = HOST.replace(".", "_")
-        HOST = HOST.replace(":", "")
-        if HOST: HOST = HOST + "_"
-        
-    logfile = os.path.join(os.path.dirname(os.path.realpath(__file__)), os.path.basename(CONFIG.configname).split(".")[0] + f"{HOST}.log")
-    if not os.path.isfile(logfile):
-        lf = open(logfile, 'wb')
-        lf.close()
-    real_size = bitmath.getsize(logfile).kB.value
-    max_size = CONFIG.get_config("log", 'max_size')
-    debug(max_size = max_size)
-    if max_size:
-        debug(is_max_size = True)
-        try:
-            max_size = bitmath.parse_string_unsafe(max_size).kB.value
-        except:
-            max_size = 0
-        if real_size > max_size:
-            try:
-                os.remove(logfile)
-            except Exception as e:
-                print(f"{make_colors(datetime.strftime(datetime.now(),  '%Y/%m/%d %H:%M:%S,%f'), 'b', 'ly')} [{make_colors('logger', 'lw', 'm')}] {make_colors('[ERROR]', 'lw','r')} {make_colors('[1]', 'b', 'ly')} {make_colors(e, 'lw', 'r')}")
-                print(make_colors(traceback.format_exc(), 'lw', 'r'))
-            try:
-                lf = open(logfile, 'wb')
-                lf.close()
-            except:
-                print(f"{make_colors(datetime.strftime(datetime.now(),  '%Y/%m/%d %H:%M:%S,%f'), 'b', 'ly')} [{make_colors('logger', 'lw', 'm')}] {make_colors('[ERROR]', 'lw','r')} {make_colors('[2]', 'b', 'ly')} {make_colors(e, 'lw', 'r')}")
-                print(make_colors(traceback.format_exc(), 'lw', 'r'))
-
-    str_format = datetime.strftime(datetime.now(), "%Y/%m/%d %H:%M:%S.%f") + " - [{}] {}".format(status, message) + "\n"
-    with open(logfile, 'ab') as ff:
-        if sys.version_info.major == 3:
-            ff.write(bytes(str_format, encoding='utf-8'))
-        else:
-            ff.write(str_format)
-
-def connection_watch(shared_data, host, port, timeout):
-    client = MPDClient()
-    while True:
-        try:
-            if not os.getenv('VERBOSE') == '0': print(f"{make_colors(datetime.strftime(datetime.now(),  '%Y/%m/%d %H:%M:%S,%f'), 'b', 'ly')} [{make_colors('Connection Watch', 'lw', 'm')}] {make_colors('Start connecting ...', 'lw','bl')} {make_colors('[1]', 'b', 'ly')}")
-            client.connect(host, port, timeout)
-            status = client.status()
-            shared_data['current_song'] = client.currentsong()
-            shared_data['status'] = status
-            #shared_data['client'] = client #error
-        except Exception as e:
-            if not os.getenv('VERBOSE') == '0': print("E 0:", make_colors(str(e), 'lw', 'm'), f"{make_colors(host, 'b', 'ly')}:{make_colors(port, 'b', 'lc')}")
-            if str(e) == f"Already connected":
-                try:
-                    shared_data['current_song'] = client.currentsong()
-                    status = client.status()
-                    shared_data['status'] = status
-                except Exception as e:
-                    if not os.getenv('VERBOSE') == '0':print("E 1:", make_colors(str(e), 'lw', 'm'))
-                    logger("E1: " + str(e), 'error')
-                    logger(traceback.format_exc(), 'error')
-                    if os.getenv('traceback') == '1': print(make_colors(traceback.format_exc(), 'lw', 'bl'))
-                    try:
-                        client.disconnect()
-                        client.connect(host, port, timeout)
-                        status = client.status()
-                        shared_data['current_song'] = client.currentsong()
-                        shared_data['status'] = status
-                    except:
-                        logger("E3: " + str(e), 'error')
-                        logger(traceback.format_exc(), 'error')                        
-                        if os.getenv('traceback') == '1': print(make_colors(traceback.format_exc(), 'b', 'g'))
-            else:
-                try:
-                    client.connect(host, port, timeout)
-                    status = client.status()
-                    shared_data['current_song'] = client.currentsong()
-                    shared_data['status'] = status
-                except Exception as e:
-                    logger("E2: " + str(e), 'error')
-                    logger(traceback.format_exc(), 'error')                    
-                    if not os.getenv('VERBOSE') == '0':print("E 2:", make_colors(str(e), 'lw', 'bl'), f"{make_colors(host, 'b', 'ly')}:{make_colors(port, 'b', 'lc')}")
-                    if os.getenv('traceback') == '1': print(make_colors(traceback.format_exc(), 'lw', 'm'))
-            time.sleep(5)
+import mpd
 
 class LastFM(object):
     CONFIGNAME = str(Path(__file__).parent / 'ticker.ini')
@@ -122,7 +27,6 @@ class LastFM(object):
 
     @classmethod
     def search_track(self, artist, track):
-        logger("LastFM: search_track -> start")
         url = 'http://ws.audioscrobbler.com/2.0/'
         params = {
             'method': 'track.search',
@@ -135,14 +39,12 @@ class LastFM(object):
         response = requests.get(url, params=params)
         data = response.json()
         if data['results']['trackmatches']['track']:
-            logger(f"LastFM: result: {data['results']['trackmatches']['track'][0]}")
             return data['results']['trackmatches']['track'][0]
         else:
             return None
 
     @classmethod
     def get_track_info(self, artist, track):
-        logger(f"LastFM: get_track_info")
         track_info = self.search_track(artist, track)
         if track_info:
             track_name = track_info['name']
@@ -160,26 +62,23 @@ class LastFM(object):
             debug(data = data)
             if 'track' in data and 'album' in data['track']:
                 album_info = data['track']['album']
-                logger(f"LastFM: get_track_info -> result: {album_info}")
                 return {
                     'album_name': album_info['title'],
                     'album_url': album_info['url'],
                     'album_image': album_info['image'][-1]['#text'] if album_info['image'] else None
                 }
 
-        data_return = {
+        return {
             'album_name': '',
             'album_url': '',
             'album_image': str(Path(__file__).parent / 'default_cover.png')
         }
-        logger(f"LastFM: get_track_info -> result: {data_return}")
-        return data_return
+
 
 class Normalization:
     
     @classmethod
     def normalization_name(self, name):
-        name0 = name
         name = name.strip()
         name = re.sub("\: ", " - ", name)
         name = re.sub("\?|\*", "", name)
@@ -204,7 +103,6 @@ class Normalization:
             else:
                 break
         debug(name = name)
-        logger(f"Normalization: {name0} -> {name}")
         return name
     
 
@@ -213,14 +111,10 @@ class MPD(MPDClient):
         super().__init__()  # Initialize the parent MPDClient class
         self.CONFIGFILE = str(Path(__file__).parent / "ticker.ini")
         self.CONFIG = configset(self.CONFIGFILE)
-        logger(f"MPD: CONFIGFILE: {self.CONFIGFILE}")
         
         self.HOST = os.getenv('MPD_HOST') or self.CONFIG.get_config('mpd', 'host', '127.0.0.1')
-        logger(f"MPD: HOST: {self.HOST}")
         self.PORT = os.getenv('MPD_PORT') or self.CONFIG.get_config('mpd', 'port', 6600)
-        logger(f"MPD: PORT: {self.PORT}")
         self.CONFIGFILE_NEXT = str(Path(__file__).parent / Normalization.normalization_name(self.HOST.strip()).replace(".", "_")) + ".ini"
-        logger(f"MPD: CONFIGFILE_NEXT: {self.CONFIGFILE_NEXT}")
         self.CONFIG = configset(self.CONFIGFILE_NEXT)
         
         self.connect_to_server()
@@ -250,7 +144,7 @@ class MPD(MPDClient):
                         break
                     except Exception as e:
                         print(f"Reconnection attempt failed: {e}")
-                        #self.update_song_info_initialize_clear()
+                        self.update_song_info_initialize_clear()
                         self.root.after(1000, try_connect)  # Retry connection every second
                         if os.getenv('TRACEBACK') == '1':
                             print(make_colors("ERROR [2]:", 'lw', 'r') + " " + make_colors(traceback.format_exc(), 'lw', 'r'))
@@ -273,7 +167,7 @@ class MPD(MPDClient):
                             print(make_colors("ERROR [0]:", 'lw', 'r') + " " + make_colors(traceback.format_exc(), 'lw', 'r'))
                     
                     print("Connection lost. Reconnecting...")                                            
-                    #self.update_song_info_initialize_clear()
+                    self.update_song_info_initialize_clear()
                     self.root.after(1000, try_connect)  # Start reconnect attempts
                     break  # Exit the while loop, the next attempt will be scheduled
         return wrapper
@@ -290,7 +184,7 @@ class MPD(MPDClient):
                     debug(dir_fn = dir(fn), debug = 1)
                     debug(args = args, debug = 1)
                     debug(kwargs = kwargs, debug = 1)
-                    self.status = ''
+                    
                     return fn(self, *args, **kwargs)
                 #except (mpd.ConnectionError, BrokenPipeError):
                 except Exception as e:
@@ -304,14 +198,13 @@ class MPD(MPDClient):
                         if str(ep) == 'Already connected':
                             try:
                                 self.currentsong()
-                                self.status = ''
+                                self.status == 'finish'
                                 break
                             except:
                                 print(make_colors("ERROR [0]:", 'lw', 'r') + " " + make_colors(traceback.format_exc(), 'lw', 'r'))
                         print("Connection lost. Reconnecting...")                        
                         try:
                             self.connect(self.HOST, self.PORT)
-                            self.status = ''
                             print("Reconnected to MPD server.")
                             break  # Exit inner loop once reconnected
                         except Exception as e:
@@ -333,149 +226,129 @@ class Music:
         return self.client.currentsong()  # Directly call currentsong on the MPD instance        
         
 class Ticker:
-    
-    def __init__(self, root = '', text=" Welcome to the MPD ticker! "):
-        self.manager = Manager()
-        self.shared_data = self.manager.dict()
-        self.shared_data['current_song'] = None
-        
+    def __init__(self, root, text=" Welcome to the MPD ticker! "):
         self.client = MPDClient()
         self.timer_id = None
+        self.timer_id_init = None
+        self.timer_id_clear = None
+        self.timer_id_error = None
+        self.timer_id_init_clear = None        
         self.CONFIGFILE = str(Path(__file__).parent / "ticker.ini")
         self.CONFIG = configset(self.CONFIGFILE)
         
-        self.last_song = self.CONFIG.get_config('last', 'song')
-        self.last_artist = self.CONFIG.get_config('last', 'artist')
-        self.last_album = self.CONFIG.get_config('last', 'album')
-        
-        self.HOST = os.getenv('MPD_HOST') or self.CONFIG.get_config('mpd', 'host', '127.0.0.1') or '127.0.0.1'
-        logger(f"Ticker: HOST: {self.HOST}")
-        self.PORT = os.getenv('MPD_PORT') or self.CONFIG.get_config('mpd', 'port', 6600) or 6600
-        logger(f"Ticker: PORT: {self.PORT}")
-        self.timeout = os.getenv('MPD_TIMEOUT') or self.CONFIG.get_config('mpd', 'timeout', 3) or 3
-        logger(f"Ticker: timeout: {self.timeout}")
+        self.HOST = os.getenv('MPD_HOST') or self.CONFIG.get_config('mpd', 'host', '127.0.0.1')
+        self.PORT = os.getenv('MPD_PORT') or self.CONFIG.get_config('mpd', 'port', 6600)
         self.CONFIGFILE_NEXT = str(Path(__file__).parent / self.normalization_name(self.HOST.strip()).replace(".", "_")) + ".ini"
-        logger(f"Ticker: CONFIGFILE_NEXT: {self.CONFIGFILE_NEXT}")
         self.CONFIG = configset(self.CONFIGFILE_NEXT)
         
         debug(self_HOSTNAME = self.HOST)
-        debug(self_PORT = self.PORT, debug = 1)
-        
-        self.client.connect(self.HOST, self.PORT, self.timeout)
+        debug(self_POT = self.PORT, debug = 1)
                 
-        #self.process = Process(target=self.connection_watch)
+        self.process = Process(target=self.connection_watch)
         #self.process.start()
-        #self.queue = queue.Queue()
-        self.N = 0
         
         self.notify = notify('MPD-Ticker', ['New Song'])
+    
+        self.root = root
+        self.root.overrideredirect(True)  # Remove window decorations
+        self.root.attributes("-topmost", True)  # Keep window on top initially
+        self.root.attributes("-alpha", self.CONFIG.get_config('transparent', 'level', 60) / 100)
+        self.load_position()  # Load window position
+        self.child_window = None        
         
+        self.style = ttk.Style()
+        
+        self.style.configure("Custom.TFrame", background=self.CONFIG.get_config('color', 'background', "#353535"))
+    
+        # Configure styles for title, album, and artist
+        self.title_color = self.CONFIG.get_config('color', 'title', "#00FFFF")
+        self.album_color = self.CONFIG.get_config('color', 'album', "#FFFF00")
+        self.artist_color = self.CONFIG.get_config('color', 'artist', "#21FF15")
+        
+        self.title_font = (self.CONFIG.get_config('font', 'title_name', "Helvetica"), self.CONFIG.get_config('font', 'title_size', 14))
+        self.album_font = (self.CONFIG.get_config('font', 'album_name', "Helvetica"), self.CONFIG.get_config('font', 'album_size', 12))
+        self.artist_font = (self.CONFIG.get_config('font', 'artist_name', "Helvetica"), self.CONFIG.get_config('font', 'artis_size', 12))
+    
+        self.frame = ttk.Frame(root, style="Custom.TFrame", padding = 0, borderwidth = 0)
+        self.frame.pack(fill=tk.BOTH, expand=True, anchor='n')  # Align to top
+    
+        #self.canvas = tk.Canvas(self.frame, background=self.CONFIG.get_config('color', 'background', "#353535"), width=600, height=100)
+        self.canvas = tk.Canvas(self.frame, background=self.CONFIG.get_config('color', 'background', "#353535"), highlightthickness=0, borderwidth=0, width=600, height=100)
+        self.canvas.pack(fill=tk.BOTH, expand=True)
+    
+        self.x = 0  # Starting position of the text
+        self.ticker_job = self.root.after(50, self.update_ticker)  # Start the ticker
+    
+        # Initialize MPD client
+        #self.connect_to_mpd()
         self.current_song = None
-        self.last_current_song = None
         
-        self.status = ''
-        self.status_str = ''
+        self.status = None
         
+        #self.update_song_info()
         self.is_first = True
         
-        self.process = Process(target=connection_watch, args=(self.shared_data, self.HOST, self.PORT, self.timeout))
-        self.process.start()        
-        
-        if root:
-            self.root = root
-            self.root.overrideredirect(True)  # Remove window decorations
-            self.root.attributes("-topmost", True)  # Keep window on top initially
-            self.root.attributes("-alpha", self.CONFIG.get_config('transparent', 'level', 60) / 100)
-            self.load_position()  # Load window position
-            self.child_window = None        
-            
-            self.style = ttk.Style()
-            
-            self.style.configure("Custom.TFrame", background=self.CONFIG.get_config('color', 'background', "#353535"))
-        
-            # Configure styles for title, album, and artist
-            self.title_color = self.CONFIG.get_config('color', 'title', "#00FFFF")
-            self.album_color = self.CONFIG.get_config('color', 'album', "#FFFF00")
-            self.artist_color = self.CONFIG.get_config('color', 'artist', "#21FF15")
-            
-            self.title_font = (self.CONFIG.get_config('font', 'title_name', "Helvetica"), self.CONFIG.get_config('font', 'title_size', 14))
-            self.album_font = (self.CONFIG.get_config('font', 'album_name', "Helvetica"), self.CONFIG.get_config('font', 'album_size', 12))
-            self.artist_font = (self.CONFIG.get_config('font', 'artist_name', "Helvetica"), self.CONFIG.get_config('font', 'artis_size', 12))
-        
-            self.frame = ttk.Frame(root, style="Custom.TFrame", padding = 0, borderwidth = 0)
-            self.frame.pack(fill=tk.BOTH, expand=True, anchor='n')  # Align to top
-        
-            #self.canvas = tk.Canvas(self.frame, background=self.CONFIG.get_config('color', 'background', "#353535"), width=600, height=100)
-            self.canvas = tk.Canvas(self.frame, background=self.CONFIG.get_config('color', 'background', "#353535"), highlightthickness=0, borderwidth=0, width=600, height=100)
-            self.canvas.pack(fill=tk.BOTH, expand=True)
-        
-            self.x = 0  # Starting position of the text
-            self.ticker_job = self.root.after(50, self.update_ticker)  # Start the ticker
-        
-            # Initialize MPD client
-            #self.connect_to_mpd()
-            self.update_song_info()
-            
-            #while 1:
-                #try:
-                    #self.client.connect(self.HOST, self.PORT)
-                    ##debug(self_is_first = self.is_first, debug = 1)
-                    ##if self.is_first:
-                        ##self.update_song_info()
-                        ##self.is_first = False
-                    #self.status = ''
-                    #break
-                #except Exception as e:
-                    #self.status = 'error'
-                    
-                    #if str(e) == "Already connected":
-                        #try:
-                            #self.client.status()
-                            #self.status = ''
-                            #break
-                        #except:
-                            #pass
-                    ##debug(self_is_first = self.is_first, debug = 1)
-                    ##if self.is_first:
-                        ##self.update_song_info()
-                        ##self.is_first = False                
-                    #print(make_colors("ERROR [0]:", 'lw', 'r'), str(e), "," + make_colors("re-connecting ...", 'b', 'ly'))
-                    #if os.getenv('TRACEBACK') == '1':
-                        #print(make_colors("ERROR [0]:", 'lw', 'r'), " " + traceback.format_exc())
-                #time.sleep(1)
+        while 1:
+            try:
+                self.client.connect(self.HOST, self.PORT)
+                debug(self_is_first = self.is_first, debug = 1)
+                if self.is_first:
+                    self.update_song_info()
+                    self.is_first = False
+                self.status = "finish"
+                break
+            except Exception as e:
+                self.status = 'error'
                 
-            # Start fetching song info
-            #self.update_song_info()
-        
-            # Bind keys to quit the application
-            #self.root.bind('<Escape>', self.quit)
-            #self.root.bind('<q>', self.quit)
-            #self.root.bind('<x>', self.quit)
+                if str(e) == "Already connected":
+                    try:
+                        self.client.status()
+                        self.status = "finish"
+                        break
+                    except:
+                        pass
+                debug(self_is_first = self.is_first, debug = 1)
+                if self.is_first:
+                    self.update_song_info()
+                    self.is_first = False                
+                print(make_colors("ERROR [0]:", 'lw', 'r'), str(e), "," + make_colors("re-connecting ...", 'b', 'ly'))
+                if os.getenv('TRACEBACK') == '1':
+                    print(make_colors("ERROR [0]:", 'lw', 'r'), " " + traceback.format_exc())
+            time.sleep(1)
             
-            self.root.bind('<Escape>', self.quit_or_close_child)
-            self.root.bind('<q>', self.quit_or_close_child)
-            self.root.bind('<x>', self.quit_or_close_child)        
+        # Start fetching song info
+        #self.update_song_info()
+    
+        # Bind keys to quit the application
+        #self.root.bind('<Escape>', self.quit)
+        #self.root.bind('<q>', self.quit)
+        #self.root.bind('<x>', self.quit)
+        
+        self.root.bind('<Escape>', self.quit_or_close_child)
+        self.root.bind('<q>', self.quit_or_close_child)
+        self.root.bind('<x>', self.quit_or_close_child)        
+        
+        self.root.bind('<s>', self.show_full_image)
+        
+        self.root.bind('<p>', self.play)        
+        self.root.bind('<Shift-P>', self.pause)        
+        self.root.bind('<n>', self.next)
+        self.root.bind('<Shift-N>', self.previous)        
+    
+        # Bind keys to toggle always on top
+        self.root.bind('a', self.set_always_on_top)
+        self.root.bind('<Shift-A>', self.set_normal)
+    
+        # Bind window movement to save position
+        self.root.bind('<Configure>', self.save_position)
+    
+        # Bind mouse events for dragging
+        self.canvas.bind("<Button-1>", self.start_move)
+        self.canvas.bind("<B1-Motion>", self.do_move)        
             
-            self.root.bind('<s>', self.show_full_image)
-            
-            self.root.bind('<p>', self.play)        
-            self.root.bind('<Shift-P>', self.pause)        
-            self.root.bind('<n>', self.next)
-            self.root.bind('<Shift-N>', self.previous)        
         
-            # Bind keys to toggle always on top
-            self.root.bind('a', self.set_always_on_top)
-            self.root.bind('<Shift-A>', self.set_normal)
-        
-            # Bind window movement to save position
-            self.root.bind('<Configure>', self.save_position)
-        
-            # Bind mouse events for dragging
-            self.canvas.bind("<Button-1>", self.start_move)
-            self.canvas.bind("<B1-Motion>", self.do_move)        
-                
-        
-    def connect(self, host = None, port = None, timeout = 5):
+    
+    def connect(self, host = None, port = None):
         host = host or self.HOST
         port = port or self.PORT
         
@@ -485,7 +358,7 @@ class Ticker:
         if isinstance(port, str) and str(port).isdigit(): port = int(port)
         if not str(port).isdigit(): port = 6600
         
-        self.client.connect(host, port, timeout)
+        self.client.connect(host, port)
         return self.client
     
     def disconnect(self):
@@ -518,7 +391,42 @@ class Ticker:
         self.client.previous()
         #except:
             #self.connect_to_mpd()
-                    
+    
+    def logger(self, message, status="info"):
+        logfile = os.path.join(os.path.dirname(os.path.realpath(__file__)), os.path.basename(self.CONFIG.configname).split(".")[0] + ".log")
+        if not os.path.isfile(logfile):
+            lf = open(logfile, 'wb')
+            lf.close()
+        real_size = bitmath.getsize(logfile).kB.value
+        max_size = self.CONFIG.get_config("log", 'max_size')
+        debug(max_size = max_size)
+        if max_size:
+            debug(is_max_size = True)
+            try:
+                max_size = bitmath.parse_string_unsafe(max_size).kB.value
+            except:
+                max_size = 0
+            if real_size > max_size:
+                try:
+                    os.remove(logfile)
+                except Exception as e:
+                    print(f"{make_colors(datetime.strftime(datetime.now(),  '%Y/%m/%d %H:%M:%S,%f'), 'b', 'ly')} [{make_colors('logger', 'lw', 'm')}] {make_colors('[ERROR]', 'lw','r')} {make_colors('[1]', 'b', 'ly')} {make_colors(e, 'lw', 'r')}")
+                    print(make_colors(traceback.format_exc(), 'lw', 'r'))
+                try:
+                    lf = open(logfile, 'wb')
+                    lf.close()
+                except:
+                    print(f"{make_colors(datetime.strftime(datetime.now(),  '%Y/%m/%d %H:%M:%S,%f'), 'b', 'ly')} [{make_colors('logger', 'lw', 'm')}] {make_colors('[ERROR]', 'lw','r')} {make_colors('[2]', 'b', 'ly')} {make_colors(e, 'lw', 'r')}")
+                    print(make_colors(traceback.format_exc(), 'lw', 'r'))
+
+
+        str_format = datetime.strftime(datetime.now(), "%Y/%m/%d %H:%M:%S.%f") + " - [{}] {}".format(status, message) + "\n"
+        with open(logfile, 'ab') as ff:
+            if sys.version_info.major == 3:
+                ff.write(bytes(str_format, encoding='utf-8'))
+            else:
+                ff.write(str_format)
+                
     def quit_or_close_child(self, event):
         if self.child_window is not None:
             self.close_child()
@@ -537,59 +445,20 @@ class Ticker:
     def schedule_image_resize(self):
         self.root.after(100, self.resize_image_to_text_height)
     
-    def connection_watch1(self):
-        global current_song
+    def connection_watch(self):
         while True:
             try:
                 print(f"{make_colors(datetime.strftime(datetime.now(),  '%Y/%m/%d %H:%M:%S,%f'), 'b', 'ly')} [{make_colors('Connection Watch', 'lw', 'm')}] {make_colors('Start connecting ...', 'lw','bl')} {make_colors('[1]', 'b', 'ly')}")
-                #self.client.connect(os.getenv('MPD_HOST') or self.CONFIG.get_config('mpd', 'host', '127.0.0.1'), int(os.getenv('MPD_PORT', 6600)) or self.CONFIG.get_config('mpd', 'port', 6600))
-                self.connect(timeout=3)
+                self.client.connect(os.getenv('MPD_HOST') or self.CONFIG.get_config('mpd', 'host', '127.0.0.1'), int(os.getenv('MPD_PORT', 6600)) or self.CONFIG.get_config('mpd', 'port', 6600))
                 status = self.client.status()
                 print(status)
-                self.current_song = self.client.currentsong()
-                #current_song = self.current_song
-            #except Exception as e:
-                #self.status = 'error'
-                #try:
-                    #self.client.disconnect()
-                #except:
-                    #pass
-                #self.client.connect(os.getenv('MPD_HOST') or self.CONFIG.get_config('mpd', 'host', '127.0.0.1'), int(os.getenv('MPD_PORT', 6600)) or self.CONFIG.get_config('mpd', 'port', 6600))
-            except Exception as e:
-                print("E 0:", make_colors(str(e), 'lw', 'm'))
-                self.status = 'error'
-                if str(e) == 'Already connected':
-                    try:
-                        self.current_song = self.client.currentsong()
-                        #current_song = self.current_song
-                        self.status = ''
-                        status = self.client.status()
-                        print(status)                        
-                    except Exception as e:
-                        print("E 1:", make_colors(str(e), 'lw', 'm'))
-                        try:
-                            self.disconnect()
-                            self.connect(timeout=3)
-                            status = self.client.status()
-                            print(status)                            
-                            self.current_song = self.client.currentsong()
-                            #current_song = self.current_song                            
-                            self.status = ''
-                        except:
-                            self.status = 'error'
-                else:
-                    try:
-                        self.connect(timeout=3)
-                        status = self.client.status()
-                        print(status)                        
-                        self.status = ''
-                        self.current_song = self.client.currentsong()
-                        #current_song = self.current_song
-                    except Exception as e:
-                        print("E 2:", make_colors(str(e), 'lw', 'm'))
-                        self.status = 'error'
-                        
-            time.sleep(self.CONFIG.get_config('watch', 'sleep', '5'))
+            except:
+                try:
+                    self.client.disconnect()
+                except:
+                    pass
+                self.client.connect(os.getenv('MPD_HOST') or self.CONFIG.get_config('mpd', 'host', '127.0.0.1'), int(os.getenv('MPD_PORT', 6600)) or self.CONFIG.get_config('mpd', 'port', 6600))
+            time.sleep(self.CONFIG.get_config('watch', 'sleep', '5') or 5)
             
     def connect_to_mpd(self):
         while 1:
@@ -649,22 +518,16 @@ class Ticker:
         debug(self_status = self.status, debug = 1)
         host_str = ''
         if not self.HOST in ['127.0.0.1', 'localhost', '1::']: host_str = f" [{self.HOST}]"
-        #status_str = ''
-        debug(self_status_str = self.status_str, debug= 1)
-        if self.status == 'error':
-            self.status_str = self.status_str or ' [disconnected]'
+        status_str = ''
+        if not self.status == 'error':
+            status = self.client.status()
+            if status.get('state') != 'play': status_str = ' [pause]' 
         else:
-            if not self.status_str:
-                try:
-                    status = self.client.status()
-                    if status.get('state') != 'play': self.status_str = ' [pause]'
-                except:
-                    status = {}
-                    self.status_str = self.status_str
+            status = {}
+            status_str = ' [disconnected]'
             
-        debug(self_status_str = self.status_str, debug= 1)
-        #if not self.current_song and not self.status == 'error':
-            #self.current_song = self.client.currentsong()
+        if not self.current_song and not self.status == 'error':
+            self.current_song = self.client.currentsong()
             
         debug(self_status = self.status, debug = 1)
         debug(self_current_song = self.current_song, debug = 1)
@@ -674,25 +537,15 @@ class Ticker:
         if self.status == 'error' or not self.current_song:
             self.canvas.delete("text")
             # Adjust text coordinates to place it to the left of the resized image with more compact spacing
-            self.canvas.create_text(image_width + 20, 10, text='disconnected' + self.status_str + host_str, fill=self.title_color, font=self.title_font, anchor='nw', tags="text")
+            self.canvas.create_text(image_width + 20, 10, text='disconnected' + status_str + host_str, fill=self.title_color, font=self.title_font, anchor='nw', tags="text")
             self.canvas.create_text(image_width + 20, 23, text='disconnected', fill=self.album_color, font=self.album_font, anchor='nw', tags="text")
             self.canvas.create_text(image_width + 20, 35, text='disconnected', fill=self.artist_color, font=self.artist_font, anchor='nw', tags="text")            
         else:
-            if self.current_song:                    
-                debug(self_current_song_title = self.current_song.get('title'), debug = 1)
-                debug(self_last_song = self.last_song, debug = 1)            
-                #if self.current_song.get('title') != self.last_song:
-                self.canvas.delete("text")
-                # Adjust text coordinates to place it to the left of the resized image with more compact spacing
-                self.canvas.create_text(image_width + 20, 10, text=self.current_song.get('title', 'Unknown Title') + self.status_str + host_str, fill=self.title_color, font=self.title_font, anchor='nw', tags="text")
-                self.canvas.create_text(image_width + 20, 23, text=f"Album: {self.current_song.get('album', 'Unknown Album')} ({self.current_song.get('date', 'Unknown Year')})", fill=self.album_color, font=self.album_font, anchor='nw', tags="text")
-                self.canvas.create_text(image_width + 20, 35, text=f"Artist: {self.current_song.get('artist', 'Unknown Artist')}", fill=self.artist_color, font=self.artist_font, anchor='nw', tags="text")
-            else:
-                self.canvas.delete("text")
-                # Adjust text coordinates to place it to the left of the resized image with more compact spacing
-                self.canvas.create_text(image_width + 20, 10, text='disconnected' + self.status_str + host_str, fill=self.title_color, font=self.title_font, anchor='nw', tags="text")
-                self.canvas.create_text(image_width + 20, 23, text='disconnected', fill=self.album_color, font=self.album_font, anchor='nw', tags="text")
-                self.canvas.create_text(image_width + 20, 35, text='disconnected', fill=self.artist_color, font=self.artist_font, anchor='nw', tags="text")                            
+            self.canvas.delete("text")
+            # Adjust text coordinates to place it to the left of the resized image with more compact spacing
+            self.canvas.create_text(image_width + 20, 10, text=self.current_song.get('title', 'Unknown Title') + status_str + host_str, fill=self.title_color, font=self.title_font, anchor='nw', tags="text")
+            self.canvas.create_text(image_width + 20, 23, text=f"Album: {self.current_song.get('album', 'Unknown Album')} ({self.current_song.get('date', 'Unknown Year')})", fill=self.album_color, font=self.album_font, anchor='nw', tags="text")
+            self.canvas.create_text(image_width + 20, 35, text=f"Artist: {self.current_song.get('artist', 'Unknown Artist')}", fill=self.artist_color, font=self.artist_font, anchor='nw', tags="text")
     
     def resize_image_to_text_height(self):
         self.root.update_idletasks()  # Ensure window is fully rendered
@@ -712,7 +565,6 @@ class Ticker:
         self.image = ImageTk.PhotoImage(resized_image)
     
         # Update the canvas with the resized image
-        #if self.current_song and self.current_song.get('title') != self.last_song:
         self.canvas.delete("image")
         self.canvas.create_image(10, 10, image=self.image, anchor='nw', tags="image")
         self.canvas.tag_bind("image", "<Button-1>", self.show_full_image)
@@ -797,64 +649,58 @@ class Ticker:
 
     #@MPD.connection_check
     def find_cover_art(self):
-        current_song = None
+        
         if self.status == 'error':
             return str(Path(__file__).parent / 'no_cover.png')
-        try:
-            current_song = self.shared_data['current_song'] or self.client.currentsong()
-        except:
-            pass
-        debug(current_song = current_song, debug = 1)
-        if current_song:
-            temp_dir = str(Path(os.getenv('temp', '/tmp')) / Path('cover') / Path((self.normalization_name(current_song.get('artist')) or 'Unknown Artist')))
-            if not os.path.isdir(temp_dir):
-                os.makedirs(temp_dir)
-                
-            if os.path.isfile(str(Path(temp_dir) / Path((self.normalization_name(current_song.get('title')) or 'No Title') + ".jpg"))):
-                print(f"{make_colors(datetime.strftime(datetime.now(),  '%Y/%m/%d %H:%M:%S,%f'), 'b', 'ly')} {make_colors('use cover [1]:', 'lw', 'm')} {make_colors(str(Path(temp_dir) / Path((self.normalization_name(current_song.get('title')) or 'No Title') + '.jpg')), 'b','y')}")
-                debug(cover = str(Path(temp_dir) / Path((self.normalization_name(current_song.get('title')) or 'No Title') + ".jpg")), debug = 1)
-                return str(Path(temp_dir) / Path((self.normalization_name(current_song.get('title')) or 'No Title') + ".jpg"))
-            elif os.path.isfile(str(Path(temp_dir) / Path((self.normalization_name(current_song.get('title')) or 'No Title') + ".png"))):
-                print(f"{make_colors(datetime.strftime(datetime.now(),  '%Y/%m/%d %H:%M:%S,%f'), 'b', 'ly')} {make_colors('use cover [2]:', 'lw', 'm')} {make_colors(str(Path(temp_dir) / Path((self.normalization_name(current_song.get('title')) or 'No Title') + '.png')), 'b','y')}")
-                debug(cover = str(Path(temp_dir) / Path((self.normalization_name(current_song.get('title')) or 'No Title') + ".png")), debug = 1)
-                return str(Path(temp_dir) / Path((self.normalization_name(current_song.get('title')) or 'No Title') + ".png"))
-            #except Exception as e:
-                #if str(e) == 'Already connected':
-                    #self.client.disconnect()
-                #self.connect_to_mpd()
-                #return self.find_cover_art()
-    
-            try:
-                #current_song = self.client.currentsong()
-                debug(current_song = current_song)
-                song = current_song.get('file', '')
-                debug(song = song)
-                if song:
-                    picture = self.client.readpicture(song)
-                    debug(picture = picture.keys())
-                    if picture.get('binary'):
-                        debug(picture = len(picture.get('binary')))
-                        ext = mimetypes.guess_extension(picture.get('type'))
-                        debug(ext = ext)
-                        temp_path = str(Path(temp_dir) / Path((self.normalization_name(current_song.get('title')) or 'No Title') + (ext or ".jpg")))
-                        debug(temp_path = temp_path)
-                        with open(temp_path, 'wb') as img_file:
-                            img_file.write(picture.get('binary'))
-                        print(f"{make_colors(datetime.strftime(datetime.now(),  '%Y/%m/%d %H:%M:%S,%f'), 'b', 'ly')} {make_colors('use cover [3]:', 'lw', 'm')} {make_colors(temp_path, 'b','y')}")
-                        debug(cover = temp_path, debug = 1)
-                        return temp_path
-    
-            except Exception as e:
-                print(f"{make_colors(datetime.strftime(datetime.now(),  '%Y/%m/%d %H:%M:%S,%f'), 'b', 'ly')} {make_colors('No embedded cover art found:', 'lw', 'bl')} {make_colors(e, 'lw', 'r')}")
+        #try:
+        current_song = self.client.currentsong()
+        temp_dir = str(Path(os.getenv('temp', '/tmp')) / Path('cover') / Path((self.normalization_name(current_song.get('artist')) or 'Unknown Artist')))
+        if not os.path.isdir(temp_dir):
+            os.makedirs(temp_dir)
+            
+        if os.path.isfile(str(Path(temp_dir) / Path((self.normalization_name(current_song.get('title')) or 'No Title') + ".jpg"))):
+            print(f"{make_colors(datetime.strftime(datetime.now(),  '%Y/%m/%d %H:%M:%S,%f'), 'b', 'ly')} {make_colors('use cover [1]:', 'lw', 'm')} {make_colors(str(Path(temp_dir) / Path((self.normalization_name(current_song.get('title')) or 'No Title') + '.jpg')), 'b','y')}")
+            debug(cover = str(Path(temp_dir) / Path((self.normalization_name(current_song.get('title')) or 'No Title') + ".jpg")), debug = 1)
+            return str(Path(temp_dir) / Path((self.normalization_name(current_song.get('title')) or 'No Title') + ".jpg"))
+        elif os.path.isfile(str(Path(temp_dir) / Path((self.normalization_name(current_song.get('title')) or 'No Title') + ".png"))):
+            print(f"{make_colors(datetime.strftime(datetime.now(),  '%Y/%m/%d %H:%M:%S,%f'), 'b', 'ly')} {make_colors('use cover [2]:', 'lw', 'm')} {make_colors(str(Path(temp_dir) / Path((self.normalization_name(current_song.get('title')) or 'No Title') + '.png')), 'b','y')}")
+            debug(cover = str(Path(temp_dir) / Path((self.normalization_name(current_song.get('title')) or 'No Title') + ".png")), debug = 1)
+            return str(Path(temp_dir) / Path((self.normalization_name(current_song.get('title')) or 'No Title') + ".png"))
+        #except Exception as e:
+            #if str(e) == 'Already connected':
+                #self.client.disconnect()
+            #self.connect_to_mpd()
+            #return self.find_cover_art()
 
-            cover = deezer_art.get_album_art(current_song.get('artist'), current_song.get('title'), current_song.get('album'), True)
-            if not cover:
-                return self.find_cover_art_lastfm(current_song)
-            else:
-                print(f"{make_colors(datetime.strftime(datetime.now(),  '%Y/%m/%d %H:%M:%S,%f'), 'b', 'ly')} {make_colors('use cover [4]:', 'lw', 'm')} {make_colors(cover, 'b','y')}")
-                return cover
-        
-        return str(Path(__file__).parent / 'no_cover.png')
+        try:
+            current_song = self.client.currentsong()
+            debug(current_song = current_song)
+            song = current_song.get('file', '')
+            debug(song = song)
+            if song:
+                picture = self.client.readpicture(song)
+                debug(picture = picture.keys())
+                if picture.get('binary'):
+                    debug(picture = len(picture.get('binary')))
+                    ext = mimetypes.guess_extension(picture.get('type'))
+                    debug(ext = ext)
+                    temp_path = str(Path(temp_dir) / Path((self.normalization_name(current_song.get('title')) or 'No Title') + (ext or ".jpg")))
+                    debug(temp_path = temp_path)
+                    with open(temp_path, 'wb') as img_file:
+                        img_file.write(picture.get('binary'))
+                    print(f"{make_colors(datetime.strftime(datetime.now(),  '%Y/%m/%d %H:%M:%S,%f'), 'b', 'ly')} {make_colors('use cover [3]:', 'lw', 'm')} {make_colors(temp_path, 'b','y')}")
+                    debug(cover = temp_path, debug = 1)
+                    return temp_path
+
+        except Exception as e:
+            print(f"{make_colors(datetime.strftime(datetime.now(),  '%Y/%m/%d %H:%M:%S,%f'), 'b', 'ly')} {make_colors('No embedded cover art found:', 'lw', 'bl')} {make_colors(e, 'lw', 'r')}")
+
+        cover = deezer_art.get_album_art(current_song.get('artist'), current_song.get('title'), current_song.get('album'), True)
+        if not cover:
+            return self.find_cover_art_lastfm(current_song)
+        else:
+            print(f"{make_colors(datetime.strftime(datetime.now(),  '%Y/%m/%d %H:%M:%S,%f'), 'b', 'ly')} {make_colors('use cover [4]:', 'lw', 'm')} {make_colors(cover, 'b','y')}")
+            return cover
     
     def find_cover_art_lastfm(self, data=None, to_file = True):
         print(make_colors("start get LastFM cover ...", 'lw', 'r'))
@@ -924,101 +770,167 @@ class Ticker:
                 return cover_file
             return cover_url
         return ''
+
+    @MPD.connection_check
+    def update_song_info_initialize(self):
+        if not self.status == 'initialize':
+            self.notify.send(title = 'MPD Ticker ---- initializing ... ' , message = "---- initializing ... \n", icon = self.find_cover_art())
+            self.status = 'initialize'
+            self.timer_id_init = self.root.after(10000, self.update_song_info_initialize)  # Update every 10 seconds        
+        
+        host_str = ''
+        if not self.HOST in ['127.0.0.1', 'localhost', '1::']:
+            host_str = f" [{self.HOST}]"
+        debug(host_str = host_str)
+        
+        self.canvas.delete("text")
+        self.canvas.create_text(10, 10, text="---- initializing ... " + host_str, fill=self.title_color, anchor='nw', tags="text")
+        self.canvas.create_text(10, 30, text=f"Album: ---- initializing ... (0000)", fill=self.album_color, anchor='nw', tags="text")
+        self.canvas.create_text(10, 50, text=f"Artist: ---- initializing ...", fill=self.artist_color, anchor='nw', tags="text")
+        
+        self.update_image(str(Path(__file__).parent / 'no_cover.png'))
                     
-    #@MPD.connection_check
+    @MPD.connection_check
     def update_song_info(self):
-        self.current_song = self.shared_data['current_song']
-        debug(self_status_str = self.status_str, debug = 1)
-        
-        if not self.status_str:
-            try:
-                status = self.shared_data['status'] or self.client.status()
-                debug(status = status, debug = 1)
-                if status.get('state') != 'play': self.status_str = ' [pause]'
-            except:
-                status = {}
-                self.status_str = self.status_str
-        
-        debug(self_status_str = self.status_str, debug = 1)
+        if self.timer_id_init:
+            self.root.after_cancel(self.timer_id_init)
+            self.timer_id_init = None
+        if self.timer_id_init_clear:
+            self.root.after_cancel(self.timer_id_init_clear)
+            self.timer_id_init_clear = None
+            
         host_str = ''
         if not self.HOST in ['127.0.0.1', 'localhost', '1::']: host_str = f" [{self.HOST}]"
         debug(host_str = host_str)
         debug(self_status = self.status, debug = 1)
-        debug(self_current_song = self.current_song, debug = 1)
-        debug(self_last_song = self.last_song, debug = 1)
-        debug(self_process_is_alive = self.process.is_alive(), debug = 1)
         
-        if self.status == 'error' or not self.current_song:
-            self.canvas.delete("text")
-            self.canvas.create_text(10, 10, text=f"{self.last_song}" + host_str, fill=self.title_color, anchor='nw', tags="text")
-            self.canvas.create_text(10, 30, text=f"Album: {self.last_album}", fill=self.album_color, anchor='nw', tags="text")
-            self.canvas.create_text(10, 50, text=f"Artist: {self.last_artist}", fill=self.artist_color, anchor='nw', tags="text")
-            
+        if self.status == 'error':
             self.update_image(str(Path(__file__).parent / 'no_cover.png'))
-                        
+        else:
+            self.update_image()
+        
+        if not self.status or self.status == 'error':
             if self.timer_id:
                 self.root.after_cancel(self.timer_id)
                 self.timer_id = None
+                
+            self.canvas.delete("text")
+            self.canvas.create_text(10, 10, text="---- initializing ... " + host_str, fill=self.title_color, anchor='nw', tags="text")
+            self.canvas.create_text(10, 30, text=f"Album: ---- initializing ... (0000)", fill=self.album_color, anchor='nw', tags="text")
+            self.canvas.create_text(10, 50, text=f"Artist: ---- initializing ...", fill=self.artist_color, anchor='nw', tags="text")
             
-            self.status = '' 
-            #self.notify.send(title = 'MPD Ticker [disconnected] ' , message = "---- DISCONNECTED ... \n", icon = str(Path(__file__).parent / 'no_cover.png'))
-            #self.timer_id_error = self.root.after(10000, self.update_song_info)  # Update every 10 seconds                        
-            #elif not self.status:
-                #self.notify.send(title = 'MPD Ticker ---- initializing ... ' , message = "---- initializing ... \n", icon = str(Path(__file__).parent / 'no_cover.png'))
-                #self.status = 'initialize'
-                #self.timer_id_error = self.root.after(10000, self.update_song_info)  # Update every 10 seconds        
+            if not self.status: self.update_image(str(Path(__file__).parent / 'no_cover.png'))
+            if self.status == 'error':
+                self.notify.send(title = 'MPD Ticker ---- disconnected ... ' , message = "---- disconnected ... \n", icon = str(Path(__file__).parent / 'no_cover.png'))
+                self.timer_id = self.root.after(10000, self.update_song_info)  # Update every 10 seconds                        
+            elif not self.status:
+                self.notify.send(title = 'MPD Ticker ---- initializing ... ' , message = "---- initializing ... \n", icon = str(Path(__file__).parent / 'no_cover.png'))
+                self.status = 'initialize'
+                self.timer_id_error = self.root.after(10000, self.update_song_info)  # Update every 10 seconds        
 
         else:
-            debug(self_current_song = self.current_song, debug = 1)
-            debug(self_last_current_song = self.last_current_song, debug = 1)
-            debug(self_last_song = self.last_song, debug = 1)
-            debug(self_status_str = self.status_str, debug= 1)
+            if self.timer_id_error:
+                self.root.after_cancel(self.timer_id_error)
+                self.timer_id_error = None
+                
+            song = self.client.currentsong()
+            #try:
+            status_str = ''
+            try:
+                status = self.client.status()
+                if status.get('state') != 'play': status_str = ' [pause]'
+            except:
+                status_str = ''
             
-            if self.current_song and not self.current_song == self.last_current_song:
-                self.last_current_song = self.current_song
-                self.status = ""
-                self.last_song = self.current_song.get('title')
-                self.CONFIG.write_config('last', 'song', self.current_song.get('title'))
-                
-                self.last_album = self.current_song.get('album')
-                self.CONFIG.write_config('last', 'song', self.current_song.get('album'))
-                
-                self.last_artist = self.current_song.get('artist')
-                self.CONFIG.write_config('last', 'song', self.current_song.get('artist'))
-                
-                debug(self_status_str = self.status_str, debug= 1)
-                debug(self_current_song = self.current_song, debug = 1)
-                debug(self_last_song = self.last_song, debug = 1)                
-                
-                self.last_current_song = self.current_song
+            if song != self.current_song:
+                self.current_song = song
                 self.canvas.delete("text")
-                self.canvas.create_text(10, 10, text=self.current_song.get('title', 'Unknown Title') + self.status_str + host_str, fill=self.title_color, anchor='nw', tags="text")
-                self.canvas.create_text(10, 30, text=f"Album: {self.current_song.get('album', 'Unknown Album')} ({self.current_song.get('date', 'Unknown Year')})", fill=self.album_color, anchor='nw', tags="text")
-                self.canvas.create_text(10, 50, text=f"Artist: {self.current_song.get('artist', 'Unknown Artist')}", fill=self.artist_color, anchor='nw', tags="text")
+                self.canvas.create_text(10, 10, text=song.get('title', 'Unknown Title') + status_str + host_str, fill=self.title_color, anchor='nw', tags="text")
+                self.canvas.create_text(10, 30, text=f"Album: {song.get('album', 'Unknown Album')} ({song.get('date', 'Unknown Year')})", fill=self.album_color, anchor='nw', tags="text")
+                self.canvas.create_text(10, 50, text=f"Artist: {song.get('artist', 'Unknown Artist')}", fill=self.artist_color, anchor='nw', tags="text")
                 self.update_image()
-                
-                value_kwargs = {
-                    "app": 'MPD-Ticker',
-                    'event': ['New Song'],
-                    "title": 'MPD Ticker' + host_str + self.status_str,
-                    'message': f"{self.current_song.get('title')}\n{self.current_song.get('album')}\n{self.current_song.get('artist')}\n",
-                    'icon': self.find_cover_art()
-                }
-                
-                value = Process(target = self.notify.send, kwargs = value_kwargs)
-                setattr(self, f'process_{self.N}', value)
-                eval(f"self.process_{self.N}.start()")
-                self.N += 1
-                
-                #self.notify.send(title = 'MPD Ticker' + host_str + status_str, message = f"{song.get('title')}\n{song.get('album')}\n{song.get('artist')}\n", icon = self.find_cover_art())
-        
-        if self.is_first:
-            self.timer_id = self.root.after(1000, self.update_song_info)  # Update every 10 seconds
-            if self.current_song:
-                self.is_first = False
-        else:
+                self.notify.send(title = 'MPD Ticker' + host_str + status_str, message = f"{song.get('title')}\n{song.get('album')}\n{song.get('artist')}\n", icon = self.find_cover_art())
             self.timer_id = self.root.after(10000, self.update_song_info)  # Update every 10 seconds
+            #except Exception as e:
+                #print(f"{make_colors(datetime.strftime(datetime.now(),  '%Y/%m/%d %H:%M:%S,%f'), 'b', 'ly')} {make_colors('Could not fetch song info', 'lw', 'bl')} {make_colors('[2]', 'b', 'ly')}: {make_colors(e, 'lw', 'r')}")
+                #if os.getenv('traceback') == '1': print(make_colors(traceback.format_exc(), 'lw', 'm'))
+                    ##self.connect_to_mpd()  # Try to reconnect if fetching failed            
+            #except Exception as e:
+                #print(f"{make_colors(datetime.strftime(datetime.now(),  '%Y/%m/%d %H:%M:%S,%f'), 'b', 'ly')} {make_colors('Could not fetch song info', 'lw', 'bl')} {make_colors('[1]', 'b', 'ly')}: {make_colors(e, 'lw', 'r')}")
+                #if os.getenv('traceback') == '1': print(make_colors(traceback.format_exc(), 'lw', 'bl'))
+                #self.connect_to_mpd()  # Try to reconnect if fetching failed
             
+    def update_song_info_initialize_clear(self):
+        host_str = ''
+        if not self.HOST in ['127.0.0.1', 'localhost', '1::']:
+            host_str = f" [{self.HOST}]"
+        debug(host_str = host_str)
+        
+        self.canvas.delete("text")
+        self.canvas.create_text(10, 10, text="---- initializing ... " + host_str, fill=self.title_color, anchor='nw', tags="text")
+        self.canvas.create_text(10, 30, text=f"Album: ---- initializing ... (0000)", fill=self.album_color, anchor='nw', tags="text")
+        self.canvas.create_text(10, 50, text=f"Artist: ---- initializing ...", fill=self.artist_color, anchor='nw', tags="text")
+        
+        self.update_image(str(Path(__file__).parent / 'no_cover.png'))
+        if not self.status == 'initialize':
+            self.notify.send(title = 'MPD Ticker ---- initializing ... ' , message = "---- initializing ... \n", icon = self.find_cover_art())
+            self.status = 'initialize'
+            #self.timer_id_init_clear = self.root.after(10000, self.update_song_info_initialize)  # Update every 10 seconds        
+            
+    def update_song_info_clear(self):
+        if self.timer_id_init_clear:
+            self.root.after_cancel(self.timer_id_init_clear)
+            self.timer_id_init_clear = None
+        host_str = ''
+        if not self.HOST in ['127.0.0.1', 'localhost', '1::']:
+            host_str = f" [{self.HOST}]"
+        debug(host_str = host_str)
+        #try:
+            #if not self.process.is_alive():
+                #self.process.start()
+                
+        if not self.status:
+            self.canvas.delete("text")
+            self.canvas.create_text(10, 10, text="---- initializing ... " + host_str, fill=self.title_color, anchor='nw', tags="text")
+            self.canvas.create_text(10, 30, text=f"Album: ---- initializing ... (0000)", fill=self.album_color, anchor='nw', tags="text")
+            self.canvas.create_text(10, 50, text=f"Artist: ---- initializing ...", fill=self.artist_color, anchor='nw', tags="text")
+            
+            self.update_image(str(Path(__file__).parent / 'no_cover.png'))
+            if not self.status == 'initialize':
+                self.notify.send(title = 'MPD Ticker ---- initializing ... ' , message = "---- initializing ... \n", icon = self.find_cover_art())
+                self.status = 'initialize'
+                #self.root.after(10000, self.update_song_info_initialize)  # Update every 10 seconds        
+
+        else:   
+            song = self.client.currentsong()
+            #try:
+            status_str = ''
+            try:
+                status = self.client.status()
+                if status.get('state') != 'play':
+                    status_str = ' [pause]'
+            except:
+                status_str = ''
+            
+            if song != self.current_song:
+                self.current_song = song
+                self.canvas.delete("text")
+                self.canvas.create_text(10, 10, text=song.get('title', 'Unknown Title') + status_str + host_str, fill=self.title_color, anchor='nw', tags="text")
+                self.canvas.create_text(10, 30, text=f"Album: {song.get('album', 'Unknown Album')} ({song.get('date', 'Unknown Year')})", fill=self.album_color, anchor='nw', tags="text")
+                self.canvas.create_text(10, 50, text=f"Artist: {song.get('artist', 'Unknown Artist')}", fill=self.artist_color, anchor='nw', tags="text")
+                self.update_image()
+                self.notify.send(title = 'MPD Ticker' + host_str + status_str, message = f"{song.get('title')}\n{song.get('album')}\n{song.get('artist')}\n", icon = self.find_cover_art())
+            self.timer_id_clear = self.root.after(10000, self.update_song_info)  # Update every 10 seconds
+            #except Exception as e:
+                #print(f"{make_colors(datetime.strftime(datetime.now(),  '%Y/%m/%d %H:%M:%S,%f'), 'b', 'ly')} {make_colors('Could not fetch song info', 'lw', 'bl')} {make_colors('[2]', 'b', 'ly')}: {make_colors(e, 'lw', 'r')}")
+                #if os.getenv('traceback') == '1': print(make_colors(traceback.format_exc(), 'lw', 'm'))
+                    ##self.connect_to_mpd()  # Try to reconnect if fetching failed            
+            #except Exception as e:
+                #print(f"{make_colors(datetime.strftime(datetime.now(),  '%Y/%m/%d %H:%M:%S,%f'), 'b', 'ly')} {make_colors('Could not fetch song info', 'lw', 'bl')} {make_colors('[1]', 'b', 'ly')}: {make_colors(e, 'lw', 'r')}")
+                #if os.getenv('traceback') == '1': print(make_colors(traceback.format_exc(), 'lw', 'bl'))
+                #self.connect_to_mpd()  # Try to reconnect if fetching failed
+            
+    
     def update_image(self, picture_path = None):
         debug(picture_path = picture_path, debug = 1)
         debug(self_status = self.status, debug = 1)
@@ -1030,10 +942,8 @@ class Ticker:
         else:
             try:
                 picture_path = self.find_cover_art()
-            except Exception as e:
-                print("E 2:", make_colors(str(e), 'lw', 'r'))
-                if os.getenv('traceback') == '1': print(make_colors(traceback.format_exc(), 'lw', 'bl'))
-                picture_path = str(Path(__file__).parent / 'no_cover.png')
+            except:
+                picture_path = self.update_image(str(Path(__file__).parent / 'no_cover.png'))
             debug(picture_path = picture_path, debug = 1)
             self.original_image = Image.open(picture_path)
             self.resize_image_to_text_height()
@@ -1043,16 +953,7 @@ class Ticker:
         return "icon.png"  # Replace with actual picture path
 
     def quit(self, event=None):
-        try:
-            self.process.terminate()
-        except:
-            pass
-        
-        for i in range(0, self.N + 1):
-            try:
-                eval(f"self.process_{i}.terminate()")
-            except:
-                pass
+        #self.process.terminate()
         try:
             self.client.disconnect()
         except:

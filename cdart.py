@@ -25,6 +25,47 @@ from configset import configset
 import deezer_art
 import traceback
 
+class Deezer:
+    def __init__(self, host='localhost', port=6600):
+        self.CONFIGNAME = str(Path(__file__).parent / 'cdart.ini')
+        self.CONFIG = configset(self.CONFIGNAME)
+        
+        self.HOST = os.getenv('MPD_HOST') or self.CONFIG.get_config('host', 'name', '127.0.0.1')
+        self.PORT = os.getenv('MPD_PORT') or self.CONFIG.get_config('host', 'port', 6600)
+        self.CONFIGFILE_NEXT = str(Path(__file__).parent / Normalization.normalization_name(self.HOST.strip()).replace(".", "_")) + ".ini"
+        self.CONFIG = configset(self.CONFIGFILE_NEXT)
+        
+        self.connect_to_server()
+
+    def connect_to_server(self):
+        while True:
+            try:
+                self.connect(self.HOST, self.PORT)
+                print("Connected to MPD server.")
+                break
+            except ConnectionRefusedError:
+                print("Connection refused. Retrying in 1 second...")
+                time.sleep(1)
+
+    @staticmethod
+    def connection_check(fn):
+        def wrapper(self, *args, **kwargs):
+            while True:  # Keep trying to call the function until successful
+                try:
+                    return fn(self, *args, **kwargs)
+                except (ConnectionError, BrokenPipeError):
+                    print("Connection lost. Reconnecting...")
+                    while True:
+                        try:
+                            self.connect(self.HOST, self.PORT)
+                            print("Reconnected to MPD server.")
+                            break  # Exit inner loop once reconnected
+                        except (mpd.ConnectionError, BrokenPipeError):
+                            time.sleep(1)
+        return wrapper
+
+
+
 class LastFM(object):
     
     CONFIGNAME = str(Path(__file__).parent / 'cdart.ini')
@@ -154,7 +195,7 @@ class MusicPlayerGUI(QWidget):
         self.ID = self.tab.id
         debug(self_ID = self.ID)
         
-        self.URL = f"ws://127.0.0.1:9222/devtools/page/{self.ID}"
+        self.URL = f"ws://127.0.0.1:{self.CONFIG.get_config('debugging', 'port', 9222)}/devtools/page/{self.ID}"
         self.deezer_controller = DeezerController(self.URL)
                 
         self.initUI()
