@@ -26,6 +26,7 @@ from datetime import datetime
 import bitmath
 #import mpd
 import win32gui, win32con
+import ctypes
 
 class CustomFormatter(logging.Formatter):
 
@@ -97,19 +98,29 @@ def logger(message, status="info"):
             try:
                 os.remove(logfile)
             except Exception as e:
-                print(f"{make_colors(datetime.strftime(datetime.now(),  '%Y/%m/%d %H:%M:%S,%f'), 'b', 'ly')} [{make_colors('logger', 'lw', 'm')}] {make_colors('[ERROR]', 'lw','r')} {make_colors('[1]', 'b', 'ly')} {make_colors(e, 'lw', 'r')}")
-                print(make_colors(traceback.format_exc(), 'lw', 'r'))
+                logging.error(str(e))
+                if os.getenv('TRACEBACK') in ['1', '2']:
+                    logging.error(traceback.format_exc())
+                if os.getenv('TRACEBACK') == '2':
+                    print(f"{make_colors(datetime.strftime(datetime.now(),  '%Y/%m/%d %H:%M:%S,%f'), 'b', 'ly')} [{make_colors('logger', 'lw', 'm')}] {make_colors('[ERROR]', 'lw','r')} {make_colors('[1]', 'b', 'ly')} {make_colors(e, 'lw', 'r')}")
+                    print(make_colors(traceback.format_exc(), 'lw', 'r'))                    
             try:
                 lf = open(logfile, 'wb')
                 lf.close()
-            except:
-                print(f"{make_colors(datetime.strftime(datetime.now(),  '%Y/%m/%d %H:%M:%S,%f'), 'b', 'ly')} [{make_colors('logger', 'lw', 'm')}] {make_colors('[ERROR]', 'lw','r')} {make_colors('[2]', 'b', 'ly')} {make_colors(e, 'lw', 'r')}")
-                print(make_colors(traceback.format_exc(), 'lw', 'r'))
+            except Exception as e:
+                if os.getenv('TRACEBACK') == '2':
+                    print(f"{make_colors(datetime.strftime(datetime.now(),  '%Y/%m/%d %H:%M:%S,%f'), 'b', 'ly')} [{make_colors('logger', 'lw', 'm')}] {make_colors('[ERROR]', 'lw','r')} {make_colors('[2]', 'b', 'ly')} {make_colors(e, 'lw', 'r')}")
+                    print(make_colors(traceback.format_exc(), 'lw', 'r'))
+                logging.error(str(e))
+                if os.getenv('TRACEBACK') in ['1', '2']: logging.error(traceback.format_exc())                
 
     str_format = datetime.strftime(datetime.now(), "%Y/%m/%d %H:%M:%S.%f") + " - [{}] {}".format(status, message) + "\n"
     with open(logfile, 'ab') as ff:
         if sys.version_info.major == 3:
-            ff.write(bytes(str_format, encoding='utf-8'))
+            if not hasattr(str_format, 'decode'):
+                ff.write(bytes(str_format, encoding='utf-8'))
+            else:
+                ff.write(str_format)
         else:
             ff.write(str_format)
 
@@ -124,22 +135,30 @@ def connection_watch(shared_data, host, port, timeout):
             shared_data['status'] = status
             debug(shared_data = shared_data)
             #shared_data['client'] = client #error
-        except Exception as e:
-            debug(E0 = e)
-            if os.getenv('DEBUG') == '1': print("E 0:", make_colors(str(e), 'lw', 'm'), f"{make_colors(host, 'b', 'ly')}:{make_colors(port, 'b', 'lc')}")
-            if str(e).lower() == "already connected":
+        except Exception as e0:
+            debug(E0 = e0)
+            logger("E0: " + str(e0), 'error')
+            if os.getenv('traceback') == '2':
+                logging.error(traceback.format_exc())
+                
+            if os.getenv('DEBUG') == '1': print("E 0:", make_colors(str(e0), 'lw', 'm'), f"{make_colors(host, 'b', 'ly')}:{make_colors(port, 'b', 'lc')}")
+            if str(e0).lower() == "already connected":
                 try:
                     shared_data['current_song'] = client.currentsong()
                     status = client.status()
-                    #debug(status = status)
                     shared_data['status'] = status
                     debug(shared_data = shared_data)
-                except Exception as e:
-                    debug(E1 = e)
-                    if os.getenv('DEBUG') == '1':print("E 1:", make_colors(str(e), 'lw', 'm'))
-                    logger("E1: " + str(e), 'error')
+                except Exception as e1:
+                    debug(E1 = e1)
+                    if os.getenv('DEBUG') == '1':print("E 1:", make_colors(str(e1), 'lw', 'm'))
+                    logger("E1: " + str(e1), 'error')
+                    logging.error("E1: " + str(e1))
                     logger(traceback.format_exc(), 'error')
-                    if os.getenv('traceback') == '1': print(make_colors(traceback.format_exc(), 'lw', 'bl'))
+                    if os.getenv('traceback') == '2':
+                        print(make_colors(traceback.format_exc(), 'lw', 'bl'))
+                    if os.getenv('traceback') == '1':
+                        logging.error(traceback.format_exc())
+                        
                     try:
                         client.disconnect()
                         client.connect(host, port, timeout)
@@ -147,12 +166,14 @@ def connection_watch(shared_data, host, port, timeout):
                         shared_data['current_song'] = client.currentsong()
                         shared_data['status'] = status
                         debug(shared_data = shared_data)
-                    except:
-                        debug(E3 = e)
-                        logger("E3: " + str(e), 'error')
-                        logger(traceback.format_exc(), 'error')                        
-                        if os.getenv('traceback') == '1': print(make_colors(traceback.format_exc(), 'b', 'g'))
-                        if os.getenv('DEBUG') == '1': print("E 3:", make_colors(str(e), 'lw', 'm'), f"{make_colors(host, 'b', 'ly')}:{make_colors(port, 'b', 'lc')}")
+                    except Exception as e3:
+                        debug(E3 = e3)
+                        logger("E3: " + str(e3), 'error')
+                        logger(traceback.format_exc(), 'error')
+                        logging.error("E3: " + str(e3))
+                        if os.getenv('traceback') == '1': logging.error(traceback.format_exc())
+                        if os.getenv('traceback') == '2': print(make_colors(traceback.format_exc(), 'b', 'g'))
+                        if os.getenv('DEBUG') == '1': print("E 3:", make_colors(str(e3), 'lw', 'm'), f"{make_colors(host, 'b', 'ly')}:{make_colors(port, 'b', 'lc')}")
             else:
                 try:
                     client.connect(host, port, timeout)
@@ -160,12 +181,14 @@ def connection_watch(shared_data, host, port, timeout):
                     shared_data['current_song'] = client.currentsong()
                     shared_data['status'] = status
                     debug(shared_data = shared_data)
-                except Exception as e:
-                    debug(E2 = e)
-                    logger("E2: " + str(e), 'error')
-                    logger(traceback.format_exc(), 'error')                    
-                    if os.getenv('DEBUG') == '1':print("E 2:", make_colors(str(e), 'lw', 'bl'), f"{make_colors(host, 'b', 'ly')}:{make_colors(port, 'b', 'lc')}")
-                    if os.getenv('traceback') == '1': print(make_colors(traceback.format_exc(), 'lw', 'm'))
+                except Exception as e2:
+                    debug(E2 = e2)
+                    logger("E2: " + str(e2), 'error')
+                    logger(traceback.format_exc(), 'error')
+                    logging.error("E2: " + str(e2))
+                    if os.getenv('DEBUG') == '1':print("E 2:", make_colors(str(e2), 'lw', 'bl'), f"{make_colors(host, 'b', 'ly')}:{make_colors(port, 'b', 'lc')}")
+                    if os.getenv('traceback') == '1': logging.error(traceback.format_exc())
+                    if os.getenv('traceback') == '2': print(make_colors(traceback.format_exc(), 'lw', 'm'))
             time.sleep(5)
 
 class LastFM(object):
@@ -384,6 +407,16 @@ class Music:
     def currentsong(self):
         return self.client.currentsong()  # Directly call currentsong on the MPD instance        
         
+class POINT(ctypes.Structure):
+    _fields_ = [("x", ctypes.c_long), ("y", ctypes.c_long)]
+
+class MINMAXINFO(ctypes.Structure):
+    _fields_ = [("ptReserved", POINT),
+                ("ptMaxSize", POINT),
+                ("ptMaxPosition", POINT),
+                ("ptMinTrackSize", POINT),
+                ("ptMaxTrackSize", POINT)]
+
 class Ticker:
     
     def __init__(self, root = '', text=" Welcome to the MPD ticker! "):
@@ -415,8 +448,7 @@ class Ticker:
         debug(self_PORT = self.PORT)
         
         if not self.HOST in ['127.0.0.1', 'localhost', '1::']:
-            print(f'{make_colors("connect to server", "ly")}\
-            {make_colors(self.HOST, "lc")}:{make_colors(self.PORT, "lr")}')
+            print(f'{make_colors("connect to server", "ly")} {make_colors(self.HOST, "lc")}:{make_colors(self.PORT, "lr")}')
             
         self.client.connect(self.HOST, self.PORT, self.timeout)
                 
@@ -492,29 +524,35 @@ class Ticker:
             self.root.deiconify()
             
     def set_borderless(self, hwnd):
-        # Get current window style
-        style = win32gui.GetWindowLong(hwnd, win32con.GWL_STYLE)
-    
-        # Remove title bar, maximize button, minimize button, and thick frame
+        #hwnd = int(self.root.wm_frame(), 16)  # Get the window handle
+        hwnd = int(self.root.wm_frame(), 16)  # Get the window handle
+        style = win32gui.GetWindowLong(hwnd, win32con.GWL_STYLE)  # Get current window style
         style = style & ~(win32con.WS_CAPTION | win32con.WS_MAXIMIZEBOX | win32con.WS_MINIMIZEBOX | win32con.WS_THICKFRAME)
-    
-        # Apply the new style
-        win32gui.SetWindowLong(hwnd, win32con.GWL_STYLE, style)
-    
-        # Update the window's non-client area to reflect the changes
-        win32gui.SetWindowPos(hwnd, None, 0, 0, 0, 0,
-                              win32con.SWP_NOMOVE | win32con.SWP_NOSIZE | win32con.SWP_NOZORDER | win32con.SWP_FRAMECHANGED)
         
+        x = int(self.CONFIG.get_config('geometry', 'x') or 100)
+        debug(x_3 = x)
+        y = int(self.CONFIG.get_config('geometry', 'y') or 100)
+        debug(y_3 = y)
+        w = int(self.CONFIG.get_config('geometry', 'width') or 450)
+        debug(w_3 = w)
+        h = int(self.CONFIG.get_config('geometry', 'height') or 53)
+        debug(h_3 = h)
+        
+        win32gui.SetWindowLong(hwnd, win32con.GWL_STYLE, style)  # Apply the new style
+        win32gui.SetWindowPos(hwnd, None, x, y, w, h,
+                              win32con.SWP_NOMOVE | win32con.SWP_NOZORDER | win32con.SWP_FRAMECHANGED)
+
+        # Hook the window procedure to handle messages
         self.old_window_proc = win32gui.SetWindowLong(hwnd, win32con.GWL_WNDPROC, self.window_proc)
         
     def window_proc(self, hwnd, msg, wparam, lparam):
         if msg == win32con.WM_GETMINMAXINFO:
-            info = win32gui.MINMAXINFO.from_address(lparam)
-            # Set maximum height (adjust the value as needed)
-            max_height = 13
+            info = MINMAXINFO.from_address(lparam)
+            max_height = int(self.CONFIG.get_config('geometry', 'height') or 53)  # Load max height from config
+            debug(max_height = max_height)
             info.ptMaxTrackSize.y = max_height
             return 0
-        return win32gui.CallWindowProc(self.old_window_proc, hwnd, msg, wparam, lparam)    
+        return win32gui.CallWindowProc(self.old_window_proc, hwnd, msg, wparam, lparam)
         
     def set_icon(self):
         # Open the PNG image
@@ -546,7 +584,7 @@ class Ticker:
         self.root.bind('<Shift-A>', self.set_normal)
     
         # Bind window movement to save position
-        self.root.bind('<Configure>', self.save_position)
+        #self.root.bind('<Configure>', self.save_position)
     
         # Bind mouse events for dragging
         self.canvas.bind("<Button-1>", self.start_move)
@@ -706,21 +744,44 @@ class Ticker:
             time.sleep(self.CONFIG.get_config('reconnection', 'sleep', '1') or 1)
 
     def load_position(self):
-        if self.CONFIG.get_config('geometry', 'x') and self.CONFIG.get_config('geometry', 'y') and self.CONFIG.get_config('geometry', 'width') and self.CONFIG.get_config('geometry', 'height'):
-            self.root.geometry(f"{self.CONFIG.get_config('geometry', 'width')}x{self.CONFIG.get_config('geometry', 'height')}+{self.CONFIG.get_config('geometry', 'x')}+{self.CONFIG.get_config('geometry', 'y')}")
+        x = self.CONFIG.get_config('geometry', 'x') or 100
+        debug(x_1 = x)
+        y = self.CONFIG.get_config('geometry', 'y') or 100
+        debug(y_1 = y)
+        w = self.CONFIG.get_config('geometry', 'width') or 450
+        debug(w_1 = w)
+        h = self.CONFIG.get_config('geometry', 'height') or 53
+        debug(h_1 = h)                
+        if x and y and w and h:
+            self.root.geometry(f"{w}x{h}+{x}+{y}")
         else:
             self.root.geometry("500x45+100+100")  # Default position and size
 
-    def save_position(self, event=None):
-        if event:
-            x = self.root.winfo_x()
-            y = self.root.winfo_y()
-            width = self.root.winfo_width()
-            height = self.root.winfo_height()
-            self.CONFIG.write_config('geometry', 'x', x)
-            self.CONFIG.write_config('geometry', 'y', y)
-            self.CONFIG.write_config('geometry', 'width', width)
-            self.CONFIG.write_config('geometry', 'height', height)
+    def save_position(self): #, event=None):
+        #if event:
+        x = self.root.winfo_x()
+        debug(x_2 = x)
+        y = self.root.winfo_y()
+        debug(y_2 = y)
+        width = self.root.winfo_width()
+        debug(w_2 = width)
+        height = self.root.winfo_height()
+        
+        #if width > (self.CONFIG.get_config('geometry', 'width') or 400):
+            #width -= 16
+        #elif width < (self.CONFIG.get_config('geometry', 'width') or 400):
+            #width = self.CONFIG.get_config('geometry', 'width')        
+        
+        #if height > (self.CONFIG.get_config('geometry', 'height') or 53):
+            #height -= 39
+        #elif height < (self.CONFIG.get_config('geometry', 'height') or 53):
+            #height = self.CONFIG.get_config('geometry', 'height')
+        
+        debug(h_2 = height)
+        self.CONFIG.write_config('geometry', 'x', x)
+        self.CONFIG.write_config('geometry', 'y', y)
+        #self.CONFIG.write_config('geometry', 'width', width)
+        #self.CONFIG.write_config('geometry', 'height', height)
 
     #@MPD.connection_check   
     def write_canvas(self, text, image_width, host_str):
@@ -894,15 +955,27 @@ class Ticker:
             temp_dir = str(Path(os.getenv('temp', '/tmp')) / Path('cover') / Path((self.normalization_name(current_song.get('artist')) or 'Unknown Artist')))
             if not os.path.isdir(temp_dir):
                 os.makedirs(temp_dir)
-                
-            if os.path.isfile(str(Path(temp_dir) / Path((self.normalization_name(current_song.get('title')) or 'No Title') + ".jpg"))):
-                print(f"{make_colors(datetime.strftime(datetime.now(),  '%Y/%m/%d %H:%M:%S,%f'), 'b', 'ly')} {make_colors('use cover [1]:', 'lw', 'm')} {make_colors(str(Path(temp_dir) / Path((self.normalization_name(current_song.get('title')) or 'No Title') + '.jpg')), 'b','y')}")
-                debug(cover = str(Path(temp_dir) / Path((self.normalization_name(current_song.get('title')) or 'No Title') + ".jpg")))
-                return str(Path(temp_dir) / Path((self.normalization_name(current_song.get('title')) or 'No Title') + ".jpg"))
-            elif os.path.isfile(str(Path(temp_dir) / Path((self.normalization_name(current_song.get('title')) or 'No Title') + ".png"))):
-                print(f"{make_colors(datetime.strftime(datetime.now(),  '%Y/%m/%d %H:%M:%S,%f'), 'b', 'ly')} {make_colors('use cover [2]:', 'lw', 'm')} {make_colors(str(Path(temp_dir) / Path((self.normalization_name(current_song.get('title')) or 'No Title') + '.png')), 'b','y')}")
-                debug(cover = str(Path(temp_dir) / Path((self.normalization_name(current_song.get('title')) or 'No Title') + ".png")))
-                return str(Path(temp_dir) / Path((self.normalization_name(current_song.get('title')) or 'No Title') + ".png"))
+            logging.info(f"music_dir = {self.CONFIG.get_config('mpd', 'music_dir')}")
+            logging.info(f"music file = {current_song.get('file')}")
+            if self.CONFIG.get_config('mpd', 'music_dir'):
+                cover_found = None
+                for cover_name in ['cover.jpg', 'cover.png', 'cover.jpeg', 'cover.bmp', 'folder.jpg', 'folder.png', 'folder.bmp', 'folder.jpeg', 'Cover.jpg', 'Cover.png', 'Cover.jpeg', 'Cover.bmp', 'Folder.jpg', 'Folder.png', 'Folder.bmp', 'Folder.jpeg']:
+                    if os.path.isfile(os.path.join(self.CONFIG.get_config('mpd', 'music_dir'), os.path.dirname(current_song.get('file')), cover_name)):
+                        cover_found = os.path.join(self.CONFIG.get_config('mpd', 'music_dir'), os.path.dirname(current_song.get('file')), cover_name)
+                        logging.info(f"cover_found = {cover_found}")
+                        break
+                if cover_found:
+                    print(f"{make_colors(datetime.strftime(datetime.now(),  '%Y/%m/%d %H:%M:%S,%f'), 'b', 'ly')} {make_colors('use cover [3]:', 'lw', 'm')} {make_colors(cover_found, 'b','y')}")
+                    return cover_found
+                           
+            elif os.path.isfile(str(Path(temp_dir) / Path(self.normalization_name(current_song.get('title')) + ".jpg"))):
+                print(f"{make_colors(datetime.strftime(datetime.now(),  '%Y/%m/%d %H:%M:%S,%f'), 'b', 'ly')} {make_colors('use cover [1]:', 'lw', 'm')} {make_colors(str(Path(temp_dir) / Path(self.normalization_name(current_song.get('title')) + '.jpg')), 'b','y')}")
+                debug(cover = str(Path(temp_dir) / Path(self.normalization_name(current_song.get('title')) + ".jpg")))
+                return str(Path(temp_dir) / Path(self.normalization_name(current_song.get('title')) + ".jpg"))
+            elif os.path.isfile(str(Path(temp_dir) / Path(self.normalization_name(current_song.get('title')) + ".png"))):
+                print(f"{make_colors(datetime.strftime(datetime.now(),  '%Y/%m/%d %H:%M:%S,%f'), 'b', 'ly')} {make_colors('use cover [2]:', 'lw', 'm')} {make_colors(str(Path(temp_dir) / Path(self.normalization_name(current_song.get('title')) + '.png')), 'b','y')}")
+                debug(cover = str(Path(temp_dir) / Path(self.normalization_name(current_song.get('title')) + ".png")))
+                return str(Path(temp_dir) / Path(self.normalization_name(current_song.get('title')) + ".png"))
             #except Exception as e:
                 #if str(e) == 'Already connected':
                     #self.client.disconnect()
@@ -943,6 +1016,8 @@ class Ticker:
     
     def find_cover_art_lastfm(self, data=None, to_file = True):
         print(make_colors("start get LastFM cover ...", 'lw', 'r'))
+        max_try = 2
+        n = 0
         def get_image(url):
             while 1:
                 try:
@@ -950,6 +1025,10 @@ class Ticker:
                     break
                 except:
                     time.sleep(1)
+                if n == max_try:
+                    break
+                else:
+                    n += 1
             
             return a.content
         
@@ -1136,6 +1215,8 @@ class Ticker:
         return "icon.png"  # Replace with actual picture path
 
     def quit(self, event=None):
+        self.save_position()  # Save position on quit
+        print(make_colors("quit ...............", 'lr'))
         try:
             self.process.terminate()
         except:
@@ -1151,7 +1232,6 @@ class Ticker:
         except:
             pass
         self.root.after_cancel(self.ticker_job)  # Cancel the scheduled update_ticker call
-        self.save_position()  # Save position on quit
         self.root.destroy()
 
     def set_always_on_top(self, event):
