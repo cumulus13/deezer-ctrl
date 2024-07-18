@@ -976,12 +976,6 @@ class Ticker:
                 print(f"{make_colors(datetime.strftime(datetime.now(),  '%Y/%m/%d %H:%M:%S,%f'), 'b', 'ly')} {make_colors('use cover [2]:', 'lw', 'm')} {make_colors(str(Path(temp_dir) / Path(self.normalization_name(current_song.get('title')) + '.png')), 'b','y')}")
                 debug(cover = str(Path(temp_dir) / Path(self.normalization_name(current_song.get('title')) + ".png")))
                 return str(Path(temp_dir) / Path(self.normalization_name(current_song.get('title')) + ".png"))
-            #except Exception as e:
-                #if str(e) == 'Already connected':
-                    #self.client.disconnect()
-                #self.connect_to_mpd()
-                #return self.find_cover_art()
-    
             try:
                 #current_song = self.client.currentsong()
                 debug(current_song = current_song)
