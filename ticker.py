@@ -1,14 +1,21 @@
-import tkinter as tk
+#!/usr/bin/env python
+#!encoding:UTF-8
 
+import os
+os.environ.update({'LOGGING_COLOR': '1',})
+os.environ.update({'TRACEBACK': '2',})
+import logging
+try:
+    from .logger import setup_logging
+except:
+    from logger import setup_logging
+import tkinter as tk
 from tkinter import ttk
 from PIL import Image, ImageTk
-import os
-import sys
-import logging
+import sys    
 from pathlib import Path
 from configset import configset
 from mpd import MPDClient
-from pydebugger.debug import debug
 from make_colors import make_colors
 import mimetypes
 import re
@@ -27,49 +34,29 @@ import bitmath
 #import mpd
 import win32gui, win32con
 import ctypes
+from rich import traceback as rich_traceback
+import traceback
+from rich.logging import RichHandler
+from rich.text import Text  
+import shutil
+rich_traceback.install(width = shutil.get_terminal_size()[0], theme = 'fruity', max_frames = 30, show_locals = True)
 
-class CustomFormatter(logging.Formatter):
-
-    info = "\x1b[32;20m"
-    debug = "\x1b[33;20m"
-    fatal = "\x1b[44;97m"
-    error = "\x1b[41;97m"
-    warning = "\x1b[43;30m"
-    critical = "\x1b[45;97m"
-    reset = "\x1b[0m"
-    format = "%(asctime)s - %(name)s - %(process)d - %(levelname)s - %(message)s (%(filename)s:%(lineno)d)"
-
-    FORMATS = {
-        logging.DEBUG: debug + format + reset,
-        logging.INFO: info + format + reset,
-        logging.WARNING: warning + format + reset,
-        logging.ERROR: error + format + reset,
-        logging.CRITICAL: critical + format + reset, 
-        logging.FATAL: fatal + format + reset
-    }
-
-    def format(self, record):
-        log_fmt = self.FORMATS.get(record.levelno)
-        formatter = logging.Formatter(log_fmt)
-        return formatter.format(record)
-
-
-def setup_logging():
-    logging.basicConfig(level=logging.DEBUG)
-    logger = logging.getLogger()
-
-    # Update the handlers of the root logger
-    for handler in logger.handlers:
-        handler.setFormatter(CustomFormatter())
-
-# Setup logging
 if os.getenv('LOGGING_COLOR') == '1':
     setup_logging()
 else:
     logging.basicConfig(level=logging.DEBUG)
 
+loggered = logging.getLogger()
+
 CONFIGFILE = str(Path(__file__).parent / "ticker.ini")
 CONFIG = configset(CONFIGFILE)
+CLIENT = MPDClient()
+
+if any('debug' in i.lower() for i in  os.environ) or CONFIG.get_config('debug', 'active') == 1:
+    from pydebugger.debug import debug
+else:
+    def debug(*args, **kwargs):
+        return
 
 def logger(message, status="info"):
     if isinstance(message, str): message = bytes(message, encoding = "utf-8")
@@ -98,9 +85,9 @@ def logger(message, status="info"):
             try:
                 os.remove(logfile)
             except Exception as e:
-                logging.error(str(e))
+                loggered.error(str(e))
                 if os.getenv('TRACEBACK') in ['1', '2']:
-                    logging.error(traceback.format_exc())
+                    loggered.error(traceback.format_exc())
                 if os.getenv('TRACEBACK') == '2':
                     print(f"{make_colors(datetime.strftime(datetime.now(),  '%Y/%m/%d %H:%M:%S,%f'), 'b', 'ly')} [{make_colors('logger', 'lw', 'm')}] {make_colors('[ERROR]', 'lw','r')} {make_colors('[1]', 'b', 'ly')} {make_colors(e, 'lw', 'r')}")
                     print(make_colors(traceback.format_exc(), 'lw', 'r'))                    
@@ -111,8 +98,8 @@ def logger(message, status="info"):
                 if os.getenv('TRACEBACK') == '2':
                     print(f"{make_colors(datetime.strftime(datetime.now(),  '%Y/%m/%d %H:%M:%S,%f'), 'b', 'ly')} [{make_colors('logger', 'lw', 'm')}] {make_colors('[ERROR]', 'lw','r')} {make_colors('[2]', 'b', 'ly')} {make_colors(e, 'lw', 'r')}")
                     print(make_colors(traceback.format_exc(), 'lw', 'r'))
-                logging.error(str(e))
-                if os.getenv('TRACEBACK') in ['1', '2']: logging.error(traceback.format_exc())                
+                loggered.error(str(e))
+                if os.getenv('TRACEBACK') in ['1', '2']: loggered.error(traceback.format_exc())                
 
     str_format = datetime.strftime(datetime.now(), "%Y/%m/%d %H:%M:%S.%f") + " - [{}] {}".format(status, message) + "\n"
     with open(logfile, 'ab') as ff:
@@ -125,71 +112,84 @@ def logger(message, status="info"):
             ff.write(str_format)
 
 def connection_watch(shared_data, host, port, timeout):
-    client = MPDClient()
+    #client = MPDClient()
+    try:
+        CLIENT.connect(host, port, timeout)
+    except:
+        pass
     while True:
         try:
-            if os.getenv('DEBUG') == '1': print(f"{make_colors(datetime.strftime(datetime.now(),  '%Y/%m/%d %H:%M:%S,%f'), 'b', 'ly')} [{make_colors('Connection Watch', 'lw', 'm')}] {make_colors('Start connecting ...', 'lw','bl')} {make_colors('[1]', 'b', 'ly')}")
-            client.connect(host, port, timeout)
-            status = client.status()
-            shared_data['current_song'] = client.currentsong()
+            if os.getenv('DEBUG') == '1' or (os.getenv('TRACEBACK').isdigit() and int(os.getenv('TRACEBACK')) > 1): print(f"{make_colors(datetime.strftime(datetime.now(),  '%Y/%m/%d %H:%M:%S,%f'), 'b', 'ly')} [{make_colors('Connection Watch', 'lw', 'm')}] {make_colors('Start connecting ...', 'lw','bl')} {make_colors('[1]', 'b', 'ly')}")
+            loggered.alert("Start connecting ...")
+            status = CLIENT.status()
+            loggered.info(f"status: {status}")
+            shared_data['current_song'] = CLIENT.currentsong()
+            loggered.info(f"shared_data['current_song']: {shared_data['current_song']}")
             shared_data['status'] = status
+            loggered.info(f"shared_data: {shared_data}")
+            loggered.info(f"shared_data['status']: {shared_data['status']}")
             debug(shared_data = shared_data)
-            #shared_data['client'] = client #error
         except Exception as e0:
             debug(E0 = e0)
-            logger("E0: " + str(e0), 'error')
-            if os.getenv('traceback') == '2':
-                logging.error(traceback.format_exc())
-                
-            if os.getenv('DEBUG') == '1': print("E 0:", make_colors(str(e0), 'lw', 'm'), f"{make_colors(host, 'b', 'ly')}:{make_colors(port, 'b', 'lc')}")
+            #logger("E0: " + str(e0), 'error')
+            if os.getenv('traceback') == '2': loggered.error(traceback.format_exc())
+            if os.getenv('DEBUG') == '1' or (os.getenv('TRACEBACK').isdigit() and int(os.getenv('TRACEBACK')) > 1): print("E 0:", make_colors(str(e0), 'lw', 'm'), f"{make_colors(host, 'b', 'ly')}:{make_colors(port, 'b', 'lc')}")
             if str(e0).lower() == "already connected":
                 try:
-                    shared_data['current_song'] = client.currentsong()
-                    status = client.status()
+                    status = CLIENT.status()
+                    shared_data['current_song'] = CLIENT.currentsong()
                     shared_data['status'] = status
                     debug(shared_data = shared_data)
+                    loggered.info(f"shared_data['current_song']: {shared_data['current_song']}")
+                    loggered.info(f"shared_data['status']: {shared_data['status']}")
                 except Exception as e1:
                     debug(E1 = e1)
                     if os.getenv('DEBUG') == '1':print("E 1:", make_colors(str(e1), 'lw', 'm'))
                     logger("E1: " + str(e1), 'error')
-                    logging.error("E1: " + str(e1))
+                    loggered.error("E1: " + str(e1))
                     logger(traceback.format_exc(), 'error')
-                    if os.getenv('traceback') == '2':
-                        print(make_colors(traceback.format_exc(), 'lw', 'bl'))
-                    if os.getenv('traceback') == '1':
-                        logging.error(traceback.format_exc())
-                        
+                    if os.getenv('traceback') == '2': print(make_colors(traceback.format_exc(), 'lw', 'bl'))
+                    if os.getenv('traceback') == '1': loggered.error(traceback.format_exc())
+                    
                     try:
-                        client.disconnect()
-                        client.connect(host, port, timeout)
-                        status = client.status()
-                        shared_data['current_song'] = client.currentsong()
+                        try:
+                            CLIENT.disconnect()
+                        except:
+                            pass
+                        CLIENT.connect(host, port, timeout)
+                        status = CLIENT.status()
+                        shared_data['current_song'] = CLIENT.currentsong()
                         shared_data['status'] = status
+                        loggered.info(f"shared_data['current_song']: {shared_data['current_song']}")
+                        loggered.info(f"shared_data['status']: {shared_data['status']}")                        
                         debug(shared_data = shared_data)
                     except Exception as e3:
                         debug(E3 = e3)
                         logger("E3: " + str(e3), 'error')
                         logger(traceback.format_exc(), 'error')
-                        logging.error("E3: " + str(e3))
-                        if os.getenv('traceback') == '1': logging.error(traceback.format_exc())
+                        loggered.error("E3: " + str(e3))
+                        if os.getenv('traceback') == '1': loggered.error(traceback.format_exc())
                         if os.getenv('traceback') == '2': print(make_colors(traceback.format_exc(), 'b', 'g'))
                         if os.getenv('DEBUG') == '1': print("E 3:", make_colors(str(e3), 'lw', 'm'), f"{make_colors(host, 'b', 'ly')}:{make_colors(port, 'b', 'lc')}")
             else:
                 try:
-                    client.connect(host, port, timeout)
-                    status = client.status()
-                    shared_data['current_song'] = client.currentsong()
+                    CLIENT.connect(host, port, timeout)
+                    status = CLIENT.status()
+                    shared_data['current_song'] = CLIENT.currentsong()
                     shared_data['status'] = status
+                    loggered.info(f"shared_data['current_song']: {shared_data['current_song']}")
+                    loggered.info(f"shared_data['status']: {shared_data['status']}")                    
                     debug(shared_data = shared_data)
                 except Exception as e2:
                     debug(E2 = e2)
                     logger("E2: " + str(e2), 'error')
                     logger(traceback.format_exc(), 'error')
-                    logging.error("E2: " + str(e2))
-                    if os.getenv('DEBUG') == '1':print("E 2:", make_colors(str(e2), 'lw', 'bl'), f"{make_colors(host, 'b', 'ly')}:{make_colors(port, 'b', 'lc')}")
-                    if os.getenv('traceback') == '1': logging.error(traceback.format_exc())
+                    loggered.error("E2: " + str(e2))
+                    if os.getenv('DEBUG') == '1': print("E 2:", make_colors(str(e2), 'lw', 'bl'), f"{make_colors(host, 'b', 'ly')}:{make_colors(port, 'b', 'lc')}")
+                    if os.getenv('traceback') == '1': loggered.error(traceback.format_exc())
                     if os.getenv('traceback') == '2': print(make_colors(traceback.format_exc(), 'lw', 'm'))
-            time.sleep(5)
+        loggered.warning(f"Watch Connection sleep time: {CONFIG.get_config('watch', 'sleep') or 30}")
+        time.sleep(CONFIG.get_config('watch', 'sleep') or 30)
 
 class LastFM(object):
     CONFIGNAME = str(Path(__file__).parent / 'ticker.ini')
@@ -245,7 +245,7 @@ class LastFM(object):
         data_return = {
             'album_name': '',
             'album_url': '',
-            'album_image': str(Path(__file__).parent / 'default_cover.png')
+            'album_image': '', #str(Path(__file__).parent / 'default_cover.png')
         }
         logger(f"LastFM: get_track_info -> result: {data_return}")
         return data_return
@@ -420,13 +420,16 @@ class MINMAXINFO(ctypes.Structure):
 class Ticker:
     
     def __init__(self, root = '', text=" Welcome to the MPD ticker! "):
+        self.FIRST = True
         self.manager = Manager()
         self.shared_data = self.manager.dict()
         self.shared_data['current_song'] = None
         
+        #self.client = MPDClient()
         self.client = MPDClient()
         self.timer_id = None
         self.CONFIGFILE = str(Path(__file__).parent / "ticker.ini")
+        loggered.warning(f"Ticker: CONFIGFILE: {self.CONFIGFILE}")
         self.CONFIG = configset(self.CONFIGFILE)
         
         self.last_song = self.CONFIG.get_config('last', 'song')
@@ -435,13 +438,16 @@ class Ticker:
         
         self.HOST = os.getenv('MPD_HOST') or self.CONFIG.get_config('mpd', 'host', '127.0.0.1') or '127.0.0.1'
         logger(f"Ticker: HOST: {self.HOST}")
+        loggered.warning(f"Ticker: HOST: {self.HOST}")
         self.PORT = os.getenv('MPD_PORT') or self.CONFIG.get_config('mpd', 'port', 6600) or 6600
         logger(f"Ticker: PORT: {self.PORT}")
+        loggered.warning(f"Ticker: PORT: {self.PORT}")
         self.timeout = os.getenv('MPD_TIMEOUT') or self.CONFIG.get_config('mpd', 'timeout', 3) or 3
         logger(f"Ticker: timeout: {self.timeout}")
-        self.CONFIGFILE_NEXT = str(Path(__file__).parent / self.normalization_name(self.HOST.strip()).replace(".", "_")) + ".ini"
+        loggered.warning(f"Ticker: timeout: {self.timeout}")
+        self.CONFIGFILE_NEXT = str(Path(__file__).parent / self.normalization_name(self.HOST.strip()).replace(".", "_")) + f"_{self.PORT}.ini"
         logger(f"Ticker: CONFIGFILE_NEXT: {self.CONFIGFILE_NEXT}")
-        logging.warning(f"Ticker: CONFIGFILE_NEXT: {self.CONFIGFILE_NEXT}")
+        loggered.warning(f"Ticker: CONFIGFILE_NEXT: {self.CONFIGFILE_NEXT}")
         self.CONFIG = configset(self.CONFIGFILE_NEXT)
         
         debug(self_HOSTNAME = self.HOST)
@@ -477,7 +483,7 @@ class Ticker:
             self.root.attributes("-topmost", True)  # Keep window on top initially
             self.root.attributes("-alpha", self.CONFIG.get_config('transparent', 'level', 60) / 100)
             #self.root.attributes("-toolwindow", False)  # Ensure the window appears in the taskbar
-            self.root.title(f"MPD Ticker [{self.HOST if not self.HOST in ['127.0.0.1', 'localhost', '::1'] else ''}]")  # Set a title for the window            
+            self.root.title(f"MPD Ticker {'[' + self.HOST + f':{self.PORT}]' if not self.HOST in ['127.0.0.1', 'localhost', '::1'] or not self.PORT == 6600 else ''}")  # Set a title for the window            
             self.load_position()  # Load window position
             self.child_window = None        
             
@@ -743,19 +749,43 @@ class Ticker:
             print(f"{make_colors(datetime.strftime(datetime.now(),  '%Y/%m/%d %H:%M:%S,%f'), 'b', 'ly')} {make_colors('ERROR', 'lw', 'r')} {make_colors(f'Sleeping for ', 'lw','bl')} {make_colors(self.CONFIG.get_config('reconnection', 'sleep', '1') or 1,  'lw', 'r')} seconds ... {make_colors('[1]', 'b', 'ly')}")
             time.sleep(self.CONFIG.get_config('reconnection', 'sleep', '1') or 1)
 
-    def load_position(self):
-        x = self.CONFIG.get_config('geometry', 'x') or 100
-        debug(x_1 = x)
-        y = self.CONFIG.get_config('geometry', 'y') or 100
-        debug(y_1 = y)
-        w = self.CONFIG.get_config('geometry', 'width') or 450
-        debug(w_1 = w)
-        h = self.CONFIG.get_config('geometry', 'height') or 53
-        debug(h_1 = h)                
-        if x and y and w and h:
-            self.root.geometry(f"{w}x{h}+{x}+{y}")
+    def load_position(self, force = False):
+        if self.CONFIG.get_config('geometry', 'active', '0') == 1 or force or self.FIRST:
+            self.FIRST = False
+            x = self.CONFIG.get_config('geometry', 'x') or 100
+            debug(x = x)
+            y = self.CONFIG.get_config('geometry', 'y') or 100
+            debug(y = y)
+            w = self.CONFIG.get_config('geometry', 'width') or 450
+            debug(w = w)
+            h = self.CONFIG.get_config('geometry', 'height') or 53
+            debug(h = h)                
+            if x and y and w and h:
+                self.root.geometry(f"{w}x{h}+{x}+{y}")
+                loggered.warning(f"Load position from {x}, {y}, {w}, {h}")
+            else:
+                self.root.geometry("500x45+100+100")  # Default position and size
+                loggered.warning(f"Load position from 500, 45, 100, 100")
         else:
-            self.root.geometry("500x45+100+100")  # Default position and size
+            try:
+                x = self.root.winfo_x()
+                x = self.root.winfo_x()
+                debug(x_2 = x)
+                y = self.root.winfo_y()
+                debug(y_2 = y)
+                w = self.root.winfo_width()
+                debug(w_2 = w)
+                h = self.root.winfo_height()
+                debug(h_2 = h)
+                self.root.geometry(f"{x}x{y}+{w}+{h}")
+                loggered.warning(f"Load position from {x}, {y}, {w}, {h}")
+            except Exception as e:
+                print(f"ERROR: {e}")
+                loggered.error(str(e))
+                self.root.geometry("500x45+100+100")  # Default position and size
+                loggered.warning(f"Load position from 500, 45, 100, 100")
+            
+            #self.CONFIG.write_config('geometry', 'active', '0')
 
     def save_position(self): #, event=None):
         #if event:
@@ -782,7 +812,9 @@ class Ticker:
         self.CONFIG.write_config('geometry', 'y', y)
         #self.CONFIG.write_config('geometry', 'width', width)
         #self.CONFIG.write_config('geometry', 'height', height)
-
+        
+        loggered.warning(f"Save position to {x}, {y}, {width}, {height}")
+        
     #@MPD.connection_check   
     def write_canvas(self, text, image_width, host_str):
         # Adjust text coordinates to place it to the left of the resized image with more compact spacing
@@ -826,13 +858,19 @@ class Ticker:
         else:
             if self.current_song:                    
                 debug(self_current_song_title = self.current_song.get('title'))
-                debug(self_last_song = self.last_song)            
-                #if self.current_song.get('title') != self.last_song:
+                debug(self_last_song = self.last_song)
                 self.canvas.delete("text")
                 # Adjust text coordinates to place it to the left of the resized image with more compact spacing
                 self.canvas.create_text(image_width + 20, 10, text=self.current_song.get('title', 'Unknown Title') + self.status_str + host_str, fill=self.title_color, font=self.title_font, anchor='nw', tags="text")
                 self.canvas.create_text(image_width + 20, 23, text=f"Album: {self.current_song.get('album', 'Unknown Album')} ({self.current_song.get('date', 'Unknown Year')})", fill=self.album_color, font=self.album_font, anchor='nw', tags="text")
                 self.canvas.create_text(image_width + 20, 35, text=f"Artist: {self.current_song.get('artist', 'Unknown Artist')}", fill=self.artist_color, font=self.artist_font, anchor='nw', tags="text")
+            elif self.current_song == {}:
+                debug(self_current_song_title = self.current_song.get('title'))
+                debug(self_last_song = self.last_song)            
+                self.canvas.delete("text")
+                self.canvas.create_text(image_width + 20, 10, text=self.current_song.get('title', '') + self.status_str.strip() + host_str, fill=self.title_color, font=self.title_font, anchor='nw', tags="text")
+                self.canvas.create_text(image_width + 20, 23, text=f"Album: {self.current_song.get('album', '')} ({self.current_song.get('date', '')})", fill=self.album_color, font=self.album_font, anchor='nw', tags="text")
+                self.canvas.create_text(image_width + 20, 35, text=f"Artist: {self.current_song.get('artist', '')}", fill=self.artist_color, font=self.artist_font, anchor='nw', tags="text")
             else:
                 self.canvas.delete("text")
                 # Adjust text coordinates to place it to the left of the resized image with more compact spacing
@@ -908,7 +946,7 @@ class Ticker:
         self.root.attributes("-alpha", self.CONFIG.get_config('transparent', 'level', 60) / 100)
         self.canvas.move("all", -2, 0)  # Move all elements to the left
         bbox = self.canvas.bbox("all")
-        if bbox[2] < 0:  # If the text has moved off the screen
+        if bbox and bbox[2] < 0:  # If the text has moved off the screen
             self.canvas.move("all", self.root.winfo_width(), 0)  # Move it back to the right side
         self.ticker_job = self.root.after(self.CONFIG.get_config('sleep', 'time', 100), self.update_ticker)  # Update ticker every 100 milliseconds
 
@@ -943,32 +981,49 @@ class Ticker:
 
     #@MPD.connection_check
     def find_cover_art(self):
+        try:
+            self.current_song = CLIENT.currentsong()
+            self.shared_data['current_song'] = self.current_song
+        except:
+            try:
+                self.current_song = self.client.currentsong()
+                self.shared_data['current_song'] = self.current_song
+            except:
+                self.current_song = self.shared_data['current_song']
+                
+        loggered.info(f"self.CONFIG.get_config('mpd', 'music_dir'): {self.CONFIG.get_config('mpd', 'music_dir')}")
+        if self.CONFIG.get_config('mpd', 'music_dir'):
+            cover_found = None
+            for cover_name in ['cover.jpg', 'cover.png', 'cover.jpeg', 'cover.bmp', 'folder.jpg', 'folder.png', 'folder.bmp', 'folder.jpeg', 'Cover.jpg', 'Cover.png', 'Cover.jpeg', 'Cover.bmp', 'Folder.jpg', 'Folder.png', 'Folder.bmp', 'Folder.jpeg']:
+                if os.path.isfile(os.path.join(self.CONFIG.get_config('mpd', 'music_dir'), os.path.dirname(self.shared_data['current_song'].get('file')), cover_name)):
+                    cover_found = os.path.join(self.CONFIG.get_config('mpd', 'music_dir'), os.path.dirname(self.shared_data['current_song'].get('file')), cover_name)
+                    loggered.info(f"cover_found = {cover_found}")
+                    loggered.warning(f"cover_found = {cover_found}")
+                    break
+            if cover_found:
+                print(f"{make_colors(datetime.strftime(datetime.now(),  '%Y/%m/%d %H:%M:%S,%f'), 'b', 'ly')} {make_colors('use cover [3]:', 'lw', 'm')} {make_colors(cover_found, 'b','y')}")
+                return cover_found
+            
         current_song = None
+        loggered.alert(f"self.status: {self.status}")
+        
         if self.status == 'error':
             return str(Path(__file__).parent / 'no_cover.png')
         try:
             current_song = self.shared_data['current_song'] or self.client.currentsong()
         except:
-            pass
+            loggered.error(traceback.format_exc())
+            
         debug(current_song = current_song)
+        loggered.info(f"current_song: {current_song}")
         if current_song:
             temp_dir = str(Path(os.getenv('temp', '/tmp')) / Path('cover') / Path((self.normalization_name(current_song.get('artist')) or 'Unknown Artist')))
             if not os.path.isdir(temp_dir):
                 os.makedirs(temp_dir)
-            logging.info(f"music_dir = {self.CONFIG.get_config('mpd', 'music_dir')}")
-            logging.info(f"music file = {current_song.get('file')}")
-            if self.CONFIG.get_config('mpd', 'music_dir'):
-                cover_found = None
-                for cover_name in ['cover.jpg', 'cover.png', 'cover.jpeg', 'cover.bmp', 'folder.jpg', 'folder.png', 'folder.bmp', 'folder.jpeg', 'Cover.jpg', 'Cover.png', 'Cover.jpeg', 'Cover.bmp', 'Folder.jpg', 'Folder.png', 'Folder.bmp', 'Folder.jpeg']:
-                    if os.path.isfile(os.path.join(self.CONFIG.get_config('mpd', 'music_dir'), os.path.dirname(current_song.get('file')), cover_name)):
-                        cover_found = os.path.join(self.CONFIG.get_config('mpd', 'music_dir'), os.path.dirname(current_song.get('file')), cover_name)
-                        logging.info(f"cover_found = {cover_found}")
-                        break
-                if cover_found:
-                    print(f"{make_colors(datetime.strftime(datetime.now(),  '%Y/%m/%d %H:%M:%S,%f'), 'b', 'ly')} {make_colors('use cover [3]:', 'lw', 'm')} {make_colors(cover_found, 'b','y')}")
-                    return cover_found
+            loggered.info(f"music_dir = {self.CONFIG.get_config('mpd', 'music_dir')}")
+            loggered.info(f"music file = {self.shared_data['current_song']}")
                            
-            elif os.path.isfile(str(Path(temp_dir) / Path(self.normalization_name(current_song.get('title')) + ".jpg"))):
+            if os.path.isfile(str(Path(temp_dir) / Path(self.normalization_name(current_song.get('title')) + ".jpg"))):
                 print(f"{make_colors(datetime.strftime(datetime.now(),  '%Y/%m/%d %H:%M:%S,%f'), 'b', 'ly')} {make_colors('use cover [1]:', 'lw', 'm')} {make_colors(str(Path(temp_dir) / Path(self.normalization_name(current_song.get('title')) + '.jpg')), 'b','y')}")
                 debug(cover = str(Path(temp_dir) / Path(self.normalization_name(current_song.get('title')) + ".jpg")))
                 return str(Path(temp_dir) / Path(self.normalization_name(current_song.get('title')) + ".jpg"))
@@ -1011,8 +1066,9 @@ class Ticker:
     def find_cover_art_lastfm(self, data=None, to_file = True):
         print(make_colors("start get LastFM cover ...", 'lw', 'r'))
         max_try = 2
-        n = 0
         def get_image(url):
+            a = None
+            n = 0
             while 1:
                 try:
                     a = requests.get(url, stream = True)
@@ -1023,8 +1079,9 @@ class Ticker:
                     break
                 else:
                     n += 1
-            
-            return a.content
+            if a:
+                return a.content
+            return ""
         
         api_key = self.CONFIG.get_config('lastfm', 'api') or "c725344c28768a57a507f014bdaeca79"
         if not data:
@@ -1038,8 +1095,7 @@ class Ticker:
             title = data.get('title')
 
         temp_dir = str(Path(os.getenv('temp', '/tmp')) / Path('cover') / Path((self.normalization_name(artist) or 'Unknown Artist')))
-        if not os.path.isdir(temp_dir):
-            os.makedirs(temp_dir)
+        if not os.path.isdir(temp_dir): os.makedirs(temp_dir)
         debug(temp_dir = temp_dir)
         if artist and album:
             #url = f"http://ws.audioscrobbler.com/2.0/?method=album.getinfo&api_key={api_key}&artist={quote(artist)}&album={quote(album)}&format=json"
@@ -1068,6 +1124,7 @@ class Ticker:
             debug(cover_url = cover_url)
             debug(to_file = to_file)
             cover_file = str(Path(__file__).parent / 'no_cover.png')
+            debug(cover_file = cover_file)   
             if cover_url and to_file:
                 print(make_colors("LastFM Cover writing ...", 'b', 'y'))
                 cover_file = os.path.join(temp_dir, self.normalization_name(title) + (os.path.splitext(cover_url)[-1] or ".jpg"))
@@ -1076,16 +1133,26 @@ class Ticker:
                     debug(cover_file_name = cover_data.name)
                     print(make_colors("LastFM Cover writing finish", 'b', 'ly'))
                     cover_file = cover_data.name
+                    debug(cover_file = cover_file)   
                     
-            debug(cover_file = cover_file)   
-            if to_file:
+            #if to_file:
                 return cover_file
-            return cover_url
+            if cover_url:
+                return cover_url
         return ''
                     
     #@MPD.connection_check
     def update_song_info(self):
-        self.current_song = self.shared_data['current_song']
+        #self.current_song = None
+        #self.current_song = self.shared_data['current_song']
+        try:
+            self.current_song = CLIENT.currentsong()
+        except:
+            try:
+                self.current_song = self.client.currentsong()
+            except:
+                self.current_song = self.shared_data['current_song']
+        loggered.info(f"self.current_song: {self.current_song}")
         debug(self_status_str = self.status_str)
         
         if not self.status_str:
@@ -1099,14 +1166,17 @@ class Ticker:
         
         debug(self_status_str = self.status_str)
         host_str = ''
-        if not self.HOST in ['127.0.0.1', 'localhost', '1::']: host_str = f" [{self.HOST}]"
+        if not self.HOST in ['127.0.0.1', 'localhost', '1::'] or not self.PORT == 6600: host_str = f" [{self.HOST}:{self.PORT}]"
+            
         debug(host_str = host_str)
         debug(self_status = self.status)
         debug(self_current_song = self.current_song)
         debug(self_last_song = self.last_song)
         debug(self_process_is_alive = self.process.is_alive())
+        loggered.warning(f"self.current_song: {self.current_song}")
+        loggered.warning(f"self.status: {self.status}")
         
-        if self.status == 'error' or not self.current_song:
+        if self.status == 'error':
             self.canvas.delete("text")
             self.canvas.create_text(10, 10, text=f"{self.last_song}" + host_str, fill=self.title_color, anchor='nw', tags="text")
             self.canvas.create_text(10, 30, text=f"Album: {self.last_album}", fill=self.album_color, anchor='nw', tags="text")
@@ -1118,23 +1188,58 @@ class Ticker:
                 self.root.after_cancel(self.timer_id)
                 self.timer_id = None
             
-            self.status = '' 
+            self.status = 'disconnect' 
             #self.notify.send(title = 'MPD Ticker [disconnected] ' , message = "---- DISCONNECTED ... \n", icon = str(Path(__file__).parent / 'no_cover.png'))
             #self.timer_id_error = self.root.after(10000, self.update_song_info)  # Update every 10 seconds                        
             #elif not self.status:
                 #self.notify.send(title = 'MPD Ticker ---- initializing ... ' , message = "---- initializing ... \n", icon = str(Path(__file__).parent / 'no_cover.png'))
                 #self.status = 'initialize'
                 #self.timer_id_error = self.root.after(10000, self.update_song_info)  # Update every 10 seconds        
-
+        
+        elif self.current_song == {}:
+            host_str = host_str or self.HOST
+            self.status = self.shared_data.get('status').get('state')
+            debug(self_status = self.status, debug = 1)
+            debug(host_str = host_str, debug = 1)
+            self.canvas.delete("text")
+            self.canvas.create_text(10, 10, text=self.current_song.get('title', '') + self.status + host_str, fill=self.title_color, anchor='nw', tags="text")
+            self.canvas.create_text(10, 30, text=f"Album: {self.current_song.get('album', '')} ({self.current_song.get('date')})", fill=self.album_color, anchor='nw', tags="text")
+            self.canvas.create_text(10, 50, text=f"Artist: {self.current_song.get('artist', '')}", fill=self.artist_color, anchor='nw', tags="text")
+            
+            self.update_image(str(Path(__file__).parent / 'no_cover.png'))
+                        
+            if self.timer_id:
+                self.root.after_cancel(self.timer_id)
+                self.timer_id = None
+            
         else:
+            if self.CONFIG.get_config('geometry', 'active', '0') == 1 or self.FIRST:
+                self.load_position(force = True)
+                self.FIRST = False
+                
             debug(self_current_song = self.current_song)
             debug(self_last_current_song = self.last_current_song)
             debug(self_last_song = self.last_song)
             debug(self_status_str = self.status_str)
+            #loggered.info(f"self.last_current_song: {self.last_current_song}")
             
+            if self.current_song == None or self.current_song == {}:
+                try:
+                    self.current_song = CLIENT.currentsong()
+                except:
+                    try:
+                        self.current_song = self.client.currentsong()
+                    except:
+                        self.current_song = self.shared_data['current_song']
+            
+            loggered.info(f"self.current_song: {self.current_song}")
+            loggered.info(f"self.last_current_song: {self.last_current_song}")
             if self.current_song and not self.current_song == self.last_current_song:
+            #if self.shared_data['current_song'] != self.current_song:
                 self.last_current_song = self.current_song
+                #self.current_song = self.shared_data['current_song']
                 self.status = ""
+                loggered.info(f"self.current_song: {self.current_song}, type: {type(self.current_song)}")
                 self.last_song = self.current_song.get('title')
                 self.CONFIG.write_config('last', 'song', self.current_song.get('title'))
                 
@@ -1170,12 +1275,14 @@ class Ticker:
                 
                 #self.notify.send(title = 'MPD Ticker' + host_str + status_str, message = f"{song.get('title')}\n{song.get('album')}\n{song.get('artist')}\n", icon = self.find_cover_art())
         
-        if self.is_first:
-            self.timer_id = self.root.after(1000, self.update_song_info)  # Update every 10 seconds
-            if not self.current_song in [{}, None, ""]:
-                self.is_first = False
+        #if self.is_first:
+            #self.timer_id = self.root.after(1000, self.update_song_info)  # Update every 10 seconds
+            #if not self.current_song in [{}, None, ""]:
+                #self.is_first = False
+        if not self.current_song in [{}, None, ""]:
+            self.timer_id = self.root.after((self.CONFIG.get_config('reconnect', 'sleep1', '5') or 5) * 1000, self.update_song_info)  # Update every 10 seconds
         else:
-            self.timer_id = self.root.after(10000, self.update_song_info)  # Update every 10 seconds
+            self.timer_id = self.root.after((self.CONFIG.get_config('reconnect', 'sleep2', '10') or 10) * 1000, self.update_song_info)  # Update every 10 seconds
             
     def update_image(self, picture_path = None):
         debug(picture_path = picture_path)
