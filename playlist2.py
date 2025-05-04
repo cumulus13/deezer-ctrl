@@ -5,6 +5,8 @@ from PyQt5.QtCore import Qt, QThread, pyqtSignal
 from mpd import MPDClient
 from pydebugger.debug import debug
 from rich.console import Console
+from pathlib import Path
+import os
 console = Console()
 from rich import traceback as rich_traceback
 import shutil
@@ -93,8 +95,10 @@ class LoadingWidget(QWidget):
         self.layout = QVBoxLayout()
         self.loadingLabel = QLabel(self)
         self.loadingLabel.setAlignment(Qt.AlignCenter)
-
-        movie = QMovie('loading.gif')  # Path to your loading GIF
+        self.IMAGEDIR = Path(__file__).parent / 'images'
+        if not self.IMAGEDIR.is_dir():
+            os.makedir(str(self.IMAGEDIR))
+        movie = QMovie(str(Path(self.IMAGEDIR / 'loading.gif')))  # Path to your loading GIF
         self.loadingLabel.setMovie(movie)
         movie.start()
 
@@ -149,8 +153,11 @@ class MainWindow(QWidget):
         self.setLayout(self.layout)
         self.layout.addWidget(self.stackedWidget)
 
+        self.IMAGEDIR = Path(__file__).parent / 'images'
+        if not self.IMAGEDIR.is_dir(): os.makedir(str(self.IMAGEDIR))
+
         self.setWindowTitle('Playlist')
-        gif = QMovie('loading.gif')
+        gif = QMovie(str(Path(self.IMAGEDIR / 'loading.gif')))
         self.gif = gif.currentImage()
         #self.setGeometry(10, 75, self.gif.width(), self.gif.height())
         

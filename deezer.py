@@ -1,4 +1,7 @@
 import sys
+import ctraceback
+sys.excepthook = ctraceback.CTraceback
+import os
 
 import pychrome
 from pydebugger.debug import debug
@@ -16,7 +19,9 @@ except:
     import deezer_ws
 
 class Deezer(object):
-    CONFIGNAME = str(Path(__file__).parent / 'deezer.ini')
+    CONFIGDIR = Path(__file__).parent / 'config'
+    if not CONFIGDIR.is_dir(): os.makedirs(str(CONFIGDIR))
+    CONFIGNAME = str(Path(__file__).parent / CONFIGDIR / 'deezer.ini')
     CONFIG = configset(CONFIGNAME)
     PORT = CONFIG.get_config('general', 'port', '9222') or 9222
     URL = CONFIG.get_config('general', 'url', f"http://127.0.0.1:{PORT}") or f"http://127.0.0.1:{PORT}"
@@ -96,7 +101,6 @@ class Deezer(object):
         result = tab.Runtime.evaluate(expression=script)
         debug(result = result)
         return result['result']
-        
     
     @classmethod
     def get_repeat_status(self, repeat_type = None, tab = None):

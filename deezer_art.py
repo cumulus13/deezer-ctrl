@@ -69,7 +69,6 @@ def normalization_name(name):
     debug(name = name)
     return name    
 
-
 def get_info(artist_name, song_name=None, album_name=None, to_json = True):
     base_url = 'https://api.deezer.com/search'
     

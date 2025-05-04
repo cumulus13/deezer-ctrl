@@ -14,7 +14,7 @@ import gntp.notifier
 import requests
 import sys
 import time
-
+import shutil
 
 class DeezerController:
     def __init__(self, websocket_url):
@@ -189,7 +189,7 @@ async def main(_id = "89EC7900019308E752BEAE72C9AD378E"):
     
     with Progress(
         TextColumn("[bold blue]{task.fields[current_song]}", justify="left"),
-        BarColumn(bar_width = 100),
+        BarColumn(bar_width = shutil.get_terminal_size()[0]),
         TextColumn("{task.completed}/{task.total}", justify="right"),
         TextColumn("[bold red]{task.fields[time]}", justify="right"),
         console=console

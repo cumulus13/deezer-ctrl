@@ -1,6 +1,13 @@
 #!/usr/bin/env python
 #!encoding:UTF-8
+# author: Hadi Cahyadi (cumulus13@gmail.com)
+# purpose: Monitor Deezer web over chrome on dev port (default: 9222)
+# licence: MIT 
 
+
+import sys    
+import ctraceback
+sys.excepthook = ctraceback.CTraceback
 import os
 os.environ.update({'LOGGING_COLOR': '1',})
 os.environ.update({'TRACEBACK': '2',})
@@ -12,7 +19,6 @@ except:
 import tkinter as tk
 from tkinter import ttk
 from PIL import Image, ImageTk
-import sys    
 from pathlib import Path
 from configset import configset
 from mpd import MPDClient
@@ -24,6 +30,7 @@ import requests
 from xnotify import notify
 import time
 from multiprocessing import Process, Manager
+import threading
 #from threading import Thread
 #import queue
 import traceback
@@ -39,7 +46,8 @@ import traceback
 from rich.logging import RichHandler
 from rich.text import Text  
 import shutil
-rich_traceback.install(width = shutil.get_terminal_size()[0], theme = 'fruity', max_frames = 30, show_locals = True)
+rich_traceback.install(width = shutil.get_terminal_size()[0], theme = 'fruity', max_frames = 30, show_locals = os.getenv('SHOW_LOCAL') or False)
+from pydebugger.debug import debug
 
 if os.getenv('LOGGING_COLOR') == '1':
     setup_logging()
@@ -48,27 +56,27 @@ else:
 
 loggered = logging.getLogger()
 
-CONFIGFILE = str(Path(__file__).parent / "ticker.ini")
+CONFIGDIR = Path(__file__).parent / 'config'
+if not CONFIGDIR.is_dir(): os.makedirs(str(CONFIGDIR))    
+CONFIGFILE = str(Path(__file__).parent / CONFIGDIR / "ticker.ini")
 CONFIG = configset(CONFIGFILE)
-CLIENT = MPDClient()
-
-if any('debug' in i.lower() for i in  os.environ) or CONFIG.get_config('debug', 'active') == 1:
-    from pydebugger.debug import debug
+CLIENT = None
+SHARED_DATA = None
+HOST = os.getenv('MPD_HOST') or CONFIG.get_config('mpd', 'host') or '127.0.0.1'
+NOTIFY = notify('MPD-Ticker', ['New Song'])
+if HOST in ['127.0.0.1', 'localhost', '::1']:
+    HOST = ''
 else:
-    def debug(*args, **kwargs):
-        return
+    HOST = HOST.replace(".", "_")
+    HOST = HOST.replace(":", "")
+    
+PORT = os.getenv('MPD_PORT') or CONFIG.get_config('mpd', 'port') or 6601
+LOGDIR = Path(__file__).parent / 'logs'
 
 def logger(message, status="info"):
-    if isinstance(message, str): message = bytes(message, encoding = "utf-8")
-    HOST = os.getenv('MPD_HOST') or CONFIG.get_config('mpd', 'host', '127.0.0.1')
-    if HOST in ['127.0.0.1', 'localhost', '::1']:
-        HOST = ''
-    else:
-        HOST = HOST.replace(".", "_")
-        HOST = HOST.replace(":", "")
-        if HOST: HOST = HOST + "_"
-        
-    logfile = os.path.join(os.path.dirname(os.path.realpath(__file__)), os.path.basename(CONFIG.configname).split(".")[0] + f"{HOST}.log")
+    if isinstance(message, str): message = bytes(message, encoding = "utf-8")    
+    if not LOGDIR.is_dir(): os.makedirs(LOGDIR)
+    logfile = os.path.join(os.path.dirname(os.path.realpath(__file__)), LOGDIR, os.path.basename(CONFIG.configname).split(".")[0] + f"{HOST}.log")
     if not os.path.isfile(logfile):
         lf = open(logfile, 'wb')
         lf.close()
@@ -85,6 +93,7 @@ def logger(message, status="info"):
             try:
                 os.remove(logfile)
             except Exception as e:
+                ctraceback.CTraceback(*sys.exc_info(), print_it = False)
                 loggered.error(str(e))
                 if os.getenv('TRACEBACK') in ['1', '2']:
                     loggered.error(traceback.format_exc())
@@ -95,6 +104,7 @@ def logger(message, status="info"):
                 lf = open(logfile, 'wb')
                 lf.close()
             except Exception as e:
+                ctraceback.CTraceback(*sys.exc_info(), print_it = False)
                 if os.getenv('TRACEBACK') == '2':
                     print(f"{make_colors(datetime.strftime(datetime.now(),  '%Y/%m/%d %H:%M:%S,%f'), 'b', 'ly')} [{make_colors('logger', 'lw', 'm')}] {make_colors('[ERROR]', 'lw','r')} {make_colors('[2]', 'b', 'ly')} {make_colors(e, 'lw', 'r')}")
                     print(make_colors(traceback.format_exc(), 'lw', 'r'))
@@ -111,90 +121,8 @@ def logger(message, status="info"):
         else:
             ff.write(str_format)
 
-def connection_watch(shared_data, host, port, timeout):
-    #client = MPDClient()
-    try:
-        CLIENT.connect(host, port, timeout)
-    except:
-        pass
-    while True:
-        try:
-            if os.getenv('DEBUG') == '1' or (os.getenv('TRACEBACK').isdigit() and int(os.getenv('TRACEBACK')) > 1): print(f"{make_colors(datetime.strftime(datetime.now(),  '%Y/%m/%d %H:%M:%S,%f'), 'b', 'ly')} [{make_colors('Connection Watch', 'lw', 'm')}] {make_colors('Start connecting ...', 'lw','bl')} {make_colors('[1]', 'b', 'ly')}")
-            loggered.alert("Start connecting ...")
-            status = CLIENT.status()
-            loggered.info(f"status: {status}")
-            shared_data['current_song'] = CLIENT.currentsong()
-            loggered.info(f"shared_data['current_song']: {shared_data['current_song']}")
-            shared_data['status'] = status
-            loggered.info(f"shared_data: {shared_data}")
-            loggered.info(f"shared_data['status']: {shared_data['status']}")
-            debug(shared_data = shared_data)
-        except Exception as e0:
-            debug(E0 = e0)
-            #logger("E0: " + str(e0), 'error')
-            if os.getenv('traceback') == '2': loggered.error(traceback.format_exc())
-            if os.getenv('DEBUG') == '1' or (os.getenv('TRACEBACK').isdigit() and int(os.getenv('TRACEBACK')) > 1): print("E 0:", make_colors(str(e0), 'lw', 'm'), f"{make_colors(host, 'b', 'ly')}:{make_colors(port, 'b', 'lc')}")
-            if str(e0).lower() == "already connected":
-                try:
-                    status = CLIENT.status()
-                    shared_data['current_song'] = CLIENT.currentsong()
-                    shared_data['status'] = status
-                    debug(shared_data = shared_data)
-                    loggered.info(f"shared_data['current_song']: {shared_data['current_song']}")
-                    loggered.info(f"shared_data['status']: {shared_data['status']}")
-                except Exception as e1:
-                    debug(E1 = e1)
-                    if os.getenv('DEBUG') == '1':print("E 1:", make_colors(str(e1), 'lw', 'm'))
-                    logger("E1: " + str(e1), 'error')
-                    loggered.error("E1: " + str(e1))
-                    logger(traceback.format_exc(), 'error')
-                    if os.getenv('traceback') == '2': print(make_colors(traceback.format_exc(), 'lw', 'bl'))
-                    if os.getenv('traceback') == '1': loggered.error(traceback.format_exc())
-                    
-                    try:
-                        try:
-                            CLIENT.disconnect()
-                        except:
-                            pass
-                        CLIENT.connect(host, port, timeout)
-                        status = CLIENT.status()
-                        shared_data['current_song'] = CLIENT.currentsong()
-                        shared_data['status'] = status
-                        loggered.info(f"shared_data['current_song']: {shared_data['current_song']}")
-                        loggered.info(f"shared_data['status']: {shared_data['status']}")                        
-                        debug(shared_data = shared_data)
-                    except Exception as e3:
-                        debug(E3 = e3)
-                        logger("E3: " + str(e3), 'error')
-                        logger(traceback.format_exc(), 'error')
-                        loggered.error("E3: " + str(e3))
-                        if os.getenv('traceback') == '1': loggered.error(traceback.format_exc())
-                        if os.getenv('traceback') == '2': print(make_colors(traceback.format_exc(), 'b', 'g'))
-                        if os.getenv('DEBUG') == '1': print("E 3:", make_colors(str(e3), 'lw', 'm'), f"{make_colors(host, 'b', 'ly')}:{make_colors(port, 'b', 'lc')}")
-            else:
-                try:
-                    CLIENT.connect(host, port, timeout)
-                    status = CLIENT.status()
-                    shared_data['current_song'] = CLIENT.currentsong()
-                    shared_data['status'] = status
-                    loggered.info(f"shared_data['current_song']: {shared_data['current_song']}")
-                    loggered.info(f"shared_data['status']: {shared_data['status']}")                    
-                    debug(shared_data = shared_data)
-                except Exception as e2:
-                    debug(E2 = e2)
-                    logger("E2: " + str(e2), 'error')
-                    logger(traceback.format_exc(), 'error')
-                    loggered.error("E2: " + str(e2))
-                    if os.getenv('DEBUG') == '1': print("E 2:", make_colors(str(e2), 'lw', 'bl'), f"{make_colors(host, 'b', 'ly')}:{make_colors(port, 'b', 'lc')}")
-                    if os.getenv('traceback') == '1': loggered.error(traceback.format_exc())
-                    if os.getenv('traceback') == '2': print(make_colors(traceback.format_exc(), 'lw', 'm'))
-        loggered.warning(f"Watch Connection sleep time: {CONFIG.get_config('watch', 'sleep') or 30}")
-        time.sleep(CONFIG.get_config('watch', 'sleep') or 30)
-
 class LastFM(object):
-    CONFIGNAME = str(Path(__file__).parent / 'ticker.ini')
-    CONFIG = configset(CONFIGNAME)
-
+    
     @classmethod
     def search_track(self, artist, track):
         logger("LastFM: search_track -> start")
@@ -282,7 +210,6 @@ class Normalization:
         logger(f"Normalization: {name0} -> {name}")
         return name
     
-
 class MPD(MPDClient):
     def __init__(self, host='localhost', port=6600):
         super().__init__()  # Initialize the parent MPDClient class
@@ -307,6 +234,7 @@ class MPD(MPDClient):
                 print("Connected to MPD server.")
                 break
             except ConnectionRefusedError:
+                ctraceback.CTraceback(*sys.exc_info(), print_it = False)
                 print("Connection refused. Retrying in 1 second...")
                 time.sleep(1)
             except:
@@ -324,6 +252,7 @@ class MPD(MPDClient):
                         #self.update_image()
                         break
                     except Exception as e:
+                        ctraceback.CTraceback(*sys.exc_info(), print_it = False)
                         print(f"Reconnection attempt failed: {e}")
                         #self.update_song_info_initialize_clear()
                         self.root.after(1000, try_connect)  # Retry connection every second
@@ -338,6 +267,7 @@ class MPD(MPDClient):
                 try:
                     return fn(self, *args, **kwargs)
                 except Exception as e:
+                    ctraceback.CTraceback(*sys.exc_info(), print_it = False)
                     ep = e
                     print(f"Connection lost: {ep}")
                     if str(ep) == 'Already connected':
@@ -369,6 +299,7 @@ class MPD(MPDClient):
                     return fn(self, *args, **kwargs)
                 #except (mpd.ConnectionError, BrokenPipeError):
                 except Exception as e:
+                    ctraceback.CTraceback(*sys.exc_info(), print_it = False)
                     self.status = 'error'
                     debug(fn__name__1 = fn.__name__)
                     #if fn.__name__ in ['update_song_info', 'update_text_on_canvas']:
@@ -390,12 +321,12 @@ class MPD(MPDClient):
                             print("Reconnected to MPD server.")
                             break  # Exit inner loop once reconnected
                         except Exception as e:
+                            ctraceback.CTraceback(*sys.exc_info(), print_it = False)
                             if os.getenv('TRACEBACK') == '1':
                                 print(make_colors("ERROR [2]:", 'lw', 'r') + " " + make_colors(traceback.format_exc(), 'lw', 'r'))
                             else:
                                 print(make_colors("ERROR [1]:", 'lw', 'r') + " " + make_colors(str(e), 'lw', 'r'))
-                            if str(e) == 'Already connected':
-                                self.disconnect()
+                            if str(e) == 'Already connected': self.disconnect()
                         time.sleep(1)
         return wrapper
 
@@ -417,18 +348,119 @@ class MINMAXINFO(ctypes.Structure):
                 ("ptMinTrackSize", POINT),
                 ("ptMaxTrackSize", POINT)]
 
+def connection_watch(shared_data = None, host = None, port = None, timeout = None):
+    global SHARED_DATA
+    shared_data = shared_data or SHARED_DATA
+    host = host or HOST or '127.0.0.1'
+    port = port or PORT or 6600
+    client = CLIENT or MPDClient()
+    try:
+        client.connect(host, port, timeout)
+    except:
+        pass
+    while True:
+        try:
+            if os.getenv('DEBUG') == '1' or (os.getenv('TRACEBACK').isdigit() and int(os.getenv('TRACEBACK')) > 1): print(f"{make_colors(datetime.strftime(datetime.now(),  '%Y/%m/%d %H:%M:%S,%f'), 'b', 'ly')} [{make_colors('Connection Watch', 'lw', 'm')}] {make_colors('Start connecting ...', 'lw','bl')} {make_colors('[1]', 'b', 'ly')}")
+            loggered.alert("Start connecting ...")
+            status = client.status()
+            debug(status = status, debug = 1)
+            loggered.info(f"status: {status}")
+            shared_data['current_song'] = client.currentsong()
+            loggered.info(f"shared_data['current_song']: {shared_data['current_song']}")
+            shared_data['status'] = status
+            loggered.info(f"shared_data: {shared_data}")
+            loggered.info(f"shared_data['status']: {shared_data['status']}")
+            debug(shared_data = shared_data, debug = 1)
+        except Exception as e0:
+            ctraceback.CTraceback(*sys.exc_info(), print_it = False)
+            debug(E0 = e0, debug = 1)
+            #logger("E0: " + str(e0), 'error')
+            if os.getenv('traceback') == '2': loggered.error(traceback.format_exc())
+            if os.getenv('DEBUG') == '1' or (os.getenv('TRACEBACK').isdigit() and int(os.getenv('TRACEBACK')) > 1): print("E 0:", make_colors(str(e0), 'lw', 'm'), f"{make_colors(host, 'b', 'ly')}:{make_colors(port, 'b', 'lc')}")
+            if str(e0).lower() == "already connected":
+                try:
+                    status = client.status()
+                    shared_data['current_song'] = client.currentsong()
+                    shared_data['status'] = status
+                    debug(shared_data = shared_data, debug = 1)
+                    loggered.info(f"shared_data['current_song']: {shared_data['current_song']}")
+                    loggered.info(f"shared_data['status']: {shared_data['status']}")
+                except Exception as e1:
+                    ctraceback.CTraceback(*sys.exc_info(), print_it = False)
+                    debug(E1 = e1, debug = 1)
+                    if os.getenv('DEBUG') == '1':print("E 1:", make_colors(str(e1), 'lw', 'm'))
+                    logger("E1: " + str(e1), 'error')
+                    loggered.error("E1: " + str(e1))
+                    logger(traceback.format_exc(), 'error')
+                    if os.getenv('traceback') == '2': print(make_colors(traceback.format_exc(), 'lw', 'bl'))
+                    if os.getenv('traceback') == '1': loggered.error(traceback.format_exc())
+                    
+                    try:
+                        try:
+                            client.disconnect()
+                        except:
+                            pass
+                        client.connect(host, port, timeout)
+                        status = client.status()
+                        shared_data['current_song'] = client.currentsong()
+                        shared_data['status'] = status
+                        loggered.info(f"shared_data['current_song']: {shared_data['current_song']}")
+                        loggered.info(f"shared_data['status']: {shared_data['status']}")                        
+                        debug(shared_data = shared_data, debug = 1)
+                    except Exception as e3:
+                        ctraceback.CTraceback(*sys.exc_info(), print_it = False)
+                        debug(E3 = e3, debug = 1)
+                        logger("E3: " + str(e3), 'error')
+                        logger(traceback.format_exc(), 'error')
+                        loggered.error("E3: " + str(e3))
+                        if os.getenv('traceback') == '1': loggered.error(traceback.format_exc())
+                        if os.getenv('traceback') == '2': print(make_colors(traceback.format_exc(), 'b', 'g'))
+                        if os.getenv('DEBUG') == '1': print("E 3:", make_colors(str(e3), 'lw', 'm'), f"{make_colors(host, 'b', 'ly')}:{make_colors(port, 'b', 'lc')}")
+            else:
+                try:
+                    client.disconnect()
+                    client.connect(host, port, timeout)
+                    status = client.status()
+                    shared_data['current_song'] = client.currentsong()
+                    shared_data['status'] = status
+                    loggered.info(f"shared_data['current_song']: {shared_data['current_song']}")
+                    loggered.info(f"shared_data['status']: {shared_data['status']}")                    
+                    debug(shared_data = shared_data, debug = 1)
+                except Exception as e2:
+                    ctraceback.CTraceback(*sys.exc_info(), print_it = False)
+                    client.disconnect()
+                    debug(E2 = e2, debug = 1)
+                    logger("E2: " + str(e2), 'error')
+                    logger(traceback.format_exc(), 'error')
+                    loggered.error("E2: " + str(e2))
+                    if os.getenv('DEBUG') == '1': print("E 2:", make_colors(str(e2), 'lw', 'bl'), f"{make_colors(host, 'b', 'ly')}:{make_colors(port, 'b', 'lc')}")
+                    if os.getenv('traceback') == '1': loggered.error(traceback.format_exc())
+                    if os.getenv('traceback') == '2': print(make_colors(traceback.format_exc(), 'lw', 'm'))
+        loggered.warning(f"Watch Connection sleep time: {CONFIG.get_config('watch', 'sleep') or 30}")
+        time.sleep(CONFIG.get_config('watch', 'sleep') or 30)
+    
+    
+    SHARED_DATA = shared_data
+
 class Ticker:
     
     def __init__(self, root = '', text=" Welcome to the MPD ticker! "):
         self.FIRST = True
-        self.manager = Manager()
-        self.shared_data = self.manager.dict()
-        self.shared_data['current_song'] = None
+        # self.manager = Manager()
+        # self.shared_data = self.manager.dict()
+        # self.shared_data = SHARED_DATA or Manager().dict()
+        self.shared_data = SHARED_DATA
+        # self.shared_data = Manager().dict()
+        # self.shared_data['current_song'] = None
         
         #self.client = MPDClient()
         self.client = MPDClient()
         self.timer_id = None
-        self.CONFIGFILE = str(Path(__file__).parent / "ticker.ini")
+        self.CONFIGDIR = Path(__file__).parent / 'config'
+        if not self.CONFIGDIR.is_dir(): os.makedirs(str(self.CONFIGDIR))    
+        self.IMAGEDIR = Path(__file__).parent / 'images'
+        if not self.IMAGEDIR.is_dir(): os.makedirs(str(self.IMAGEDIR))    
+        self.CONFIGFILE = str(Path(__file__).parent / self.CONFIGDIR / "ticker.ini")
         loggered.warning(f"Ticker: CONFIGFILE: {self.CONFIGFILE}")
         self.CONFIG = configset(self.CONFIGFILE)
         
@@ -458,7 +490,7 @@ class Ticker:
             
         self.client.connect(self.HOST, self.PORT, self.timeout)
                 
-        #self.process = Process(target=self.connection_watch)
+        #self.process = Proce   ss(target=self.connection_watch)
         #self.process.start()
         #self.queue = queue.Queue()
         self.N = 0
@@ -473,8 +505,15 @@ class Ticker:
         
         self.is_first = True
         
-        self.process = Process(target=connection_watch, args=(self.shared_data, self.HOST, self.PORT, self.timeout))
-        self.process.start()        
+        debug(self_HOST = self.HOST, debug = 1)
+        debug(self_PORT = self.PORT, debug = 1)
+        debug(self_timeout = self.timeout, debug = 1)
+        debug(self_shared_data = self.shared_data, debug = 1)
+        
+        # # self.process = Process(target=self.connection_watch, args=(self.shared_data, self.HOST, self.PORT, self.timeout))
+        # self.process = Process(target=self.connection_watch, args=())
+        # # self.process = Process(target=connection_watch, args=(self.shared_data, self.HOST, self.PORT, self.timeout))
+        # self.process.start()        
         
         if root:
             self.root = root or tk.Tk()
@@ -529,6 +568,158 @@ class Ticker:
             self.set_borderless(self.hwnd)
             self.root.deiconify()
             
+            self.start_connection_thread()
+    
+    @classmethod
+    def connection_watch(cls, shared_data = None, host = None, port = None, timeout = None, client = None):
+        global SHARED_DATA
+        shared_data = shared_data or SHARED_DATA
+        host = host or HOST
+        port = port or PORT
+        timeout = timeout or timeout
+        client = client or CLIENT
+        
+        #client = MPDClient()
+        try:
+            client.connect(host, port, timeout)
+        except:
+            pass
+        while True:
+            try:
+                if os.getenv('DEBUG') == '1' or (os.getenv('TRACEBACK').isdigit() and int(os.getenv('TRACEBACK')) > 1): print(f"{make_colors(datetime.strftime(datetime.now(),  '%Y/%m/%d %H:%M:%S,%f'), 'b', 'ly')} [{make_colors('Connection Watch', 'lw', 'm')}] {make_colors('Start connecting ...', 'lw','bl')} {make_colors('[1]', 'b', 'ly')}")
+                loggered.alert("Start connecting ...")
+                status = client.status()
+                debug(status = status, debug = 1)
+                loggered.info(f"status: {status}")
+                shared_data['current_song'] = client.currentsong()
+                loggered.info(f"shared_data['current_song']: {shared_data['current_song']}")
+                shared_data['status'] = status
+                loggered.info(f"shared_data: {shared_data}")
+                loggered.info(f"shared_data['status']: {shared_data['status']}")
+                debug(shared_data = shared_data, debug = 1)
+            except Exception as e0:
+                ctraceback.CTraceback(*sys.exc_info(), print_it = False)
+                debug(E0 = e0, debug = 1)
+                #logger("E0: " + str(e0), 'error')
+                if os.getenv('traceback') == '2': loggered.error(traceback.format_exc())
+                if os.getenv('DEBUG') == '1' or (os.getenv('TRACEBACK').isdigit() and int(os.getenv('TRACEBACK')) > 1): print("E 0:", make_colors(str(e0), 'lw', 'm'), f"{make_colors(host, 'b', 'ly')}:{make_colors(port, 'b', 'lc')}")
+                if str(e0).lower() == "already connected":
+                    try:
+                        status = client.status()
+                        shared_data['current_song'] = client.currentsong()
+                        shared_data['status'] = status
+                        debug(shared_data = shared_data, debug = 1)
+                        loggered.info(f"shared_data['current_song']: {shared_data['current_song']}")
+                        loggered.info(f"shared_data['status']: {shared_data['status']}")
+                    except Exception as e1:
+                        ctraceback.CTraceback(*sys.exc_info(), print_it = False)
+                        debug(E1 = e1, debug = 1)
+                        if os.getenv('DEBUG') == '1':print("E 1:", make_colors(str(e1), 'lw', 'm'))
+                        logger("E1: " + str(e1), 'error')
+                        loggered.error("E1: " + str(e1))
+                        logger(traceback.format_exc(), 'error')
+                        if os.getenv('traceback') == '2': print(make_colors(traceback.format_exc(), 'lw', 'bl'))
+                        if os.getenv('traceback') == '1': loggered.error(traceback.format_exc())
+                        
+                        try:
+                            try:
+                                client.disconnect()
+                            except:
+                                pass
+                            client.connect(host, port, timeout)
+                            status = client.status()
+                            shared_data['current_song'] = client.currentsong()
+                            shared_data['status'] = status
+                            loggered.info(f"shared_data['current_song']: {shared_data['current_song']}")
+                            loggered.info(f"shared_data['status']: {shared_data['status']}")                        
+                            debug(shared_data = shared_data, debug = 1)
+                        except Exception as e3:
+                            ctraceback.CTraceback(*sys.exc_info(), print_it = False)
+                            debug(E3 = e3, debug = 1)
+                            logger("E3: " + str(e3), 'error')
+                            logger(traceback.format_exc(), 'error')
+                            loggered.error("E3: " + str(e3))
+                            if os.getenv('traceback') == '1': loggered.error(traceback.format_exc())
+                            if os.getenv('traceback') == '2': print(make_colors(traceback.format_exc(), 'b', 'g'))
+                            if os.getenv('DEBUG') == '1': print("E 3:", make_colors(str(e3), 'lw', 'm'), f"{make_colors(host, 'b', 'ly')}:{make_colors(port, 'b', 'lc')}")
+                else:
+                    try:
+                        client.disconnect()
+                        client.connect(host, port, timeout)
+                        status = client.status()
+                        shared_data['current_song'] = client.currentsong()
+                        shared_data['status'] = status
+                        loggered.info(f"shared_data['current_song']: {shared_data['current_song']}")
+                        loggered.info(f"shared_data['status']: {shared_data['status']}")                    
+                        debug(shared_data = shared_data, debug = 1)
+                    except Exception as e2:
+                        ctraceback.CTraceback(*sys.exc_info(), print_it = False)
+                        client.disconnect()
+                        debug(E2 = e2, debug = 1)
+                        logger("E2: " + str(e2), 'error')
+                        logger(traceback.format_exc(), 'error')
+                        loggered.error("E2: " + str(e2))
+                        if os.getenv('DEBUG') == '1': print("E 2:", make_colors(str(e2), 'lw', 'bl'), f"{make_colors(host, 'b', 'ly')}:{make_colors(port, 'b', 'lc')}")
+                        if os.getenv('traceback') == '1': loggered.error(traceback.format_exc())
+                        if os.getenv('traceback') == '2': print(make_colors(traceback.format_exc(), 'lw', 'm'))
+            loggered.warning(f"Watch Connection sleep time: {CONFIG.get_config('watch', 'sleep') or 30}")
+            time.sleep(CONFIG.get_config('watch', 'sleep') or 30)
+    
+        
+        SHARED_DATA = shared_data
+        
+    def get_date(self):
+        return datetime.strftime(datetime.now(), '%Y/%m/%d %H:%M:%S.%f')
+
+    # Function to connect to MPD server
+    def connect_to_mpd(self):
+        print(f"{self.get_date()} try connect_to_mpd ...")
+        try:
+            # Connect to the MPD server
+            self.client.connect(self.HOST, self.PORT)
+            # label.config(text="Connected to MPD Server")
+            return self.client
+        except ConnectionError as e:
+            ctraceback.CTraceback(*sys.exc_info(), print_it = False)
+            # label.config(text="Connection failed: " + str(e))
+            return None
+        except Exception as e:
+            ctraceback.CTraceback(*sys.exc_info(), print_it = False)
+            if 'already connect' in str(e):
+                try:
+                    self.client = MPDClient()
+                    # Connect to the MPD server
+                    self.client.connect(self.HOST, self.PORT)                
+                    self.client.currentsong()
+                except:
+                    try:
+                        self.client.disconnect()
+                        self.client = MPDClient()
+                        # Connect to the MPD server
+                        self.client.connect(self.HOST, self.PORT)                
+                        self.client.currentsong()                    
+                    except:
+                        pass
+            else:
+                try:
+                    self.client.disconnect()
+                    self.client = MPDClient()
+                    # Connect to the MPD server
+                    self.client.connect(self.HOST, self.PORT)                
+                    self.client.currentsong()                    
+                except:
+                    pass
+                
+    def run_mpd_thread(self):
+        while 1:
+            self.client = self.connect_to_mpd()
+            time.sleep(3)
+            
+    def start_connection_thread(self):
+        thread = threading.Thread(target=self.run_mpd_thread, args=())
+        thread.daemon = True
+        thread.start()
+
     def set_borderless(self, hwnd):
         #hwnd = int(self.root.wm_frame(), 16)  # Get the window handle
         hwnd = int(self.root.wm_frame(), 16)  # Get the window handle
@@ -562,16 +753,15 @@ class Ticker:
         
     def set_icon(self):
         # Open the PNG image
-        png_image = Image.open(str(Path(__file__).parent / 'ticker.png'))
+        png_image = Image.open(str(Path(__file__).parent / self.IMAGEDIR / 'ticker.png'))
         
         # Convert to GIF (if transparency is not an issue)
         gif_image = png_image.convert('RGB')  # or 'RGBA' if transparency is needed
         
         # Save as GIF format
-        gif_image.save(str(Path(__file__).parent / 'ticker.gif'))
+        gif_image.save(str(Path(__file__).parent / self.IMAGEDIR / 'ticker.gif'))
         
-        return str(Path(__file__).parent / 'ticker.gif')
-        
+        return str(Path(__file__).parent / self.IMAGEDIR / 'ticker.gif')
             
     def bind_keys(self): 
         self.root.bind('<Escape>', self.quit_or_close_child)
@@ -595,7 +785,6 @@ class Ticker:
         # Bind mouse events for dragging
         self.canvas.bind("<Button-1>", self.start_move)
         self.canvas.bind("<B1-Motion>", self.do_move)        
-                
         
     def connect(self, host = None, port = None, timeout = 5):
         host = host or self.HOST
@@ -678,6 +867,7 @@ class Ticker:
                     #pass
                 #self.client.connect(os.getenv('MPD_HOST') or self.CONFIG.get_config('mpd', 'host', '127.0.0.1'), int(os.getenv('MPD_PORT', 6600)) or self.CONFIG.get_config('mpd', 'port', 6600))
             except Exception as e:
+                ctraceback.CTraceback(*sys.exc_info(), print_it = False)
                 print("E 0:", make_colors(str(e), 'lw', 'm'))
                 self.status = 'error'
                 if str(e) == 'Already connected':
@@ -688,6 +878,7 @@ class Ticker:
                         status = self.client.status()
                         print(status)                        
                     except Exception as e:
+                        ctraceback.CTraceback(*sys.exc_info(), print_it = False)
                         print("E 1:", make_colors(str(e), 'lw', 'm'))
                         try:
                             self.disconnect()
@@ -708,6 +899,7 @@ class Ticker:
                         self.current_song = self.client.currentsong()
                         #current_song = self.current_song
                     except Exception as e:
+                        ctraceback.CTraceback(*sys.exc_info(), print_it = False)
                         print("E 2:", make_colors(str(e), 'lw', 'm'))
                         self.status = 'error'
                         
@@ -715,7 +907,7 @@ class Ticker:
             
     def connect_to_mpd(self):
         while 1:
-            print(make_colors(datetime.strftime(datetime.now(),  '%Y/%m/%d %H:%M:%S,%f'), 'b', 'ly') + " " +  make_colors("check process background [1]:", 'lw', 'm') + " " + make_colors(str(self.process.is_alive()), 'lw', 'r'))
+            # print(make_colors(datetime.strftime(datetime.now(),  '%Y/%m/%d %H:%M:%S,%f'), 'b', 'ly') + " " +  make_colors("check process background [1]:", 'lw', 'm') + " " + make_colors(str(self.process.is_alive()), 'lw', 'r'))
             #if not self.process.is_alive():
                 #self.process.start()            
             try:
@@ -724,6 +916,7 @@ class Ticker:
                 #print(status)
                 break
             except Exception as e:
+                ctraceback.CTraceback(*sys.exc_info(), print_it = False)
                 if str(e) != 'Already connected':
                     print(f"{make_colors(datetime.strftime(datetime.now(),  '%Y/%m/%d %H:%M:%S,%f'), 'b', 'ly')} {make_colors('Could not connect to MPD', 'lw','r')} {make_colors('[1]', 'b', 'ly')}: {make_colors(e, 'lw','r')}")
                 if os.getenv('traceback') == '1': print(traceback.format_exc())                    
@@ -815,7 +1008,28 @@ class Ticker:
         
         loggered.warning(f"Save position to {x}, {y}, {width}, {height}")
         
-    #@MPD.connection_check   
+    def position_monitor(self):
+        x = self.CONFIG.get_config('geometry', 'x') or 100
+        debug(x = x)
+        y = self.CONFIG.get_config('geometry', 'y') or 100
+        debug(y = y)
+        w = self.CONFIG.get_config('geometry', 'width') or 450
+        debug(w = w)
+        h = self.CONFIG.get_config('geometry', 'height') or 53
+        debug(h = h)
+        
+        x1 = self.root.winfo_x()
+        debug(x1 = x1)
+        y1 = self.root.winfo_y()
+        debug(y1 = y1)
+        w1 = self.root.winfo_width()
+        debug(w1 = w1)
+        h1 = self.root.winfo_height()
+        debug(h1 = h1)
+        
+        if not x == x1 or not y == y1 or not w == w1 or not h == h1:
+            self.save_position()
+        
     def write_canvas(self, text, image_width, host_str):
         # Adjust text coordinates to place it to the left of the resized image with more compact spacing
         self.canvas.create_text(image_width + 20, 10, text=text + self.status_str + host_str, fill=self.title_color, font=self.title_font, anchor='nw', tags="text")
@@ -823,6 +1037,7 @@ class Ticker:
         self.canvas.create_text(image_width + 20, 35, text=text, fill=self.artist_color, font=self.artist_font, anchor='nw', tags="text")                    
     
     def update_text_on_canvas(self, image_width):
+        
         debug(self_status = self.status)
         host_str = ''
         if not self.HOST in ['127.0.0.1', 'localhost', '1::']: host_str = f" [{self.HOST}]"
@@ -831,8 +1046,8 @@ class Ticker:
         if self.status == 'error':
             self.status_str = ' [disconnected]'
         else:
-            if self.shared_data.get('status'):
-                self.status_str = ' [' + self.shared_data['status'].get('state') + ']'
+            if SHARED_DATA.get('status'):
+                self.status_str = ' [' + SHARED_DATA['status'].get('state') + ']'
                 if self.status_str == 'play': self.status_str = ''
         #else:
             #if not self.status_str:
@@ -979,24 +1194,24 @@ class Ticker:
         debug(name = name)
         return name
 
-    #@MPD.connection_check
     def find_cover_art(self):
+        # global SHARED_DATA
         try:
-            self.current_song = CLIENT.currentsong()
-            self.shared_data['current_song'] = self.current_song
+            self.current_song = self.client.currentsong()
+            SHARED_DATA['current_song'] = self.current_song
         except:
             try:
                 self.current_song = self.client.currentsong()
-                self.shared_data['current_song'] = self.current_song
+                SHARED_DATA['current_song'] = self.current_song
             except:
-                self.current_song = self.shared_data['current_song']
+                self.current_song = SHARED_DATA['current_song']
                 
         loggered.info(f"self.CONFIG.get_config('mpd', 'music_dir'): {self.CONFIG.get_config('mpd', 'music_dir')}")
         if self.CONFIG.get_config('mpd', 'music_dir'):
             cover_found = None
             for cover_name in ['cover.jpg', 'cover.png', 'cover.jpeg', 'cover.bmp', 'folder.jpg', 'folder.png', 'folder.bmp', 'folder.jpeg', 'Cover.jpg', 'Cover.png', 'Cover.jpeg', 'Cover.bmp', 'Folder.jpg', 'Folder.png', 'Folder.bmp', 'Folder.jpeg']:
-                if os.path.isfile(os.path.join(self.CONFIG.get_config('mpd', 'music_dir'), os.path.dirname(self.shared_data['current_song'].get('file')), cover_name)):
-                    cover_found = os.path.join(self.CONFIG.get_config('mpd', 'music_dir'), os.path.dirname(self.shared_data['current_song'].get('file')), cover_name)
+                if os.path.isfile(os.path.join(self.CONFIG.get_config('mpd', 'music_dir'), os.path.dirname(SHARED_DATA['current_song'].get('file')), cover_name)):
+                    cover_found = os.path.join(self.CONFIG.get_config('mpd', 'music_dir'), os.path.dirname(SHARED_DATA['current_song'].get('file')), cover_name)
                     loggered.info(f"cover_found = {cover_found}")
                     loggered.warning(f"cover_found = {cover_found}")
                     break
@@ -1008,9 +1223,9 @@ class Ticker:
         loggered.alert(f"self.status: {self.status}")
         
         if self.status == 'error':
-            return str(Path(__file__).parent / 'no_cover.png')
+            return str(Path(__file__).parent / self.IMAGEDIR / 'no_cover.png')
         try:
-            current_song = self.shared_data['current_song'] or self.client.currentsong()
+            current_song = SHARED_DATA['current_song'] or self.client.currentsong()
         except:
             loggered.error(traceback.format_exc())
             
@@ -1021,7 +1236,7 @@ class Ticker:
             if not os.path.isdir(temp_dir):
                 os.makedirs(temp_dir)
             loggered.info(f"music_dir = {self.CONFIG.get_config('mpd', 'music_dir')}")
-            loggered.info(f"music file = {self.shared_data['current_song']}")
+            loggered.info(f"music file = {SHARED_DATA['current_song']}")
                            
             if os.path.isfile(str(Path(temp_dir) / Path(self.normalization_name(current_song.get('title')) + ".jpg"))):
                 print(f"{make_colors(datetime.strftime(datetime.now(),  '%Y/%m/%d %H:%M:%S,%f'), 'b', 'ly')} {make_colors('use cover [1]:', 'lw', 'm')} {make_colors(str(Path(temp_dir) / Path(self.normalization_name(current_song.get('title')) + '.jpg')), 'b','y')}")
@@ -1052,6 +1267,7 @@ class Ticker:
                         return temp_path
     
             except Exception as e:
+                ctraceback.CTraceback(*sys.exc_info(), print_it = False)
                 print(f"{make_colors(datetime.strftime(datetime.now(),  '%Y/%m/%d %H:%M:%S,%f'), 'b', 'ly')} {make_colors('No embedded cover art found:', 'lw', 'bl')} {make_colors(e, 'lw', 'r')}")
 
             cover = deezer_art.get_album_art(current_song.get('artist'), current_song.get('title'), current_song.get('album'), True)
@@ -1061,7 +1277,7 @@ class Ticker:
                 print(f"{make_colors(datetime.strftime(datetime.now(),  '%Y/%m/%d %H:%M:%S,%f'), 'b', 'ly')} {make_colors('use cover [4]:', 'lw', 'm')} {make_colors(cover, 'b','y')}")
                 return cover
         
-        return str(Path(__file__).parent / 'no_cover.png')
+        return str(Path(__file__).parent / self.IMAGEDIR / 'no_cover.png')
     
     def find_cover_art_lastfm(self, data=None, to_file = True):
         print(make_colors("start get LastFM cover ...", 'lw', 'r'))
@@ -1116,6 +1332,7 @@ class Ticker:
                         f.write(requests.get(url1).content)
                     return temp_path
                 except Exception as e:
+                    ctraceback.CTraceback(*sys.exc_info(), print_it = False)
                     print("failed to get cover art from LastFM:", e)
 
         if artist and title:
@@ -1123,7 +1340,7 @@ class Ticker:
             cover_url = cover_from_lastfm.get('album_image')
             debug(cover_url = cover_url)
             debug(to_file = to_file)
-            cover_file = str(Path(__file__).parent / 'no_cover.png')
+            cover_file = str(Path(__file__).parent / self.IMAGEDIR / 'no_cover.png')
             debug(cover_file = cover_file)   
             if cover_url and to_file:
                 print(make_colors("LastFM Cover writing ...", 'b', 'y'))
@@ -1141,23 +1358,23 @@ class Ticker:
                 return cover_url
         return ''
                     
-    #@MPD.connection_check
     def update_song_info(self):
         #self.current_song = None
         #self.current_song = self.shared_data['current_song']
+        self.position_monitor()
         try:
-            self.current_song = CLIENT.currentsong()
+            self.current_song = self.client.currentsong()
         except:
             try:
                 self.current_song = self.client.currentsong()
             except:
-                self.current_song = self.shared_data['current_song']
+                self.current_song = SHARED_DATA['current_song']
         loggered.info(f"self.current_song: {self.current_song}")
         debug(self_status_str = self.status_str)
         
         if not self.status_str:
             try:
-                status = self.shared_data['status'] or self.client.status()
+                status = SHARED_DATA['status'] or self.client.status()
                 debug(status = status)
                 if status.get('state') != 'play': self.status_str = ' [pause]'
             except:
@@ -1172,7 +1389,7 @@ class Ticker:
         debug(self_status = self.status)
         debug(self_current_song = self.current_song)
         debug(self_last_song = self.last_song)
-        debug(self_process_is_alive = self.process.is_alive())
+        # debug(self_process_is_alive = self.process.is_alive())
         loggered.warning(f"self.current_song: {self.current_song}")
         loggered.warning(f"self.status: {self.status}")
         
@@ -1182,7 +1399,7 @@ class Ticker:
             self.canvas.create_text(10, 30, text=f"Album: {self.last_album}", fill=self.album_color, anchor='nw', tags="text")
             self.canvas.create_text(10, 50, text=f"Artist: {self.last_artist}", fill=self.artist_color, anchor='nw', tags="text")
             
-            self.update_image(str(Path(__file__).parent / 'no_cover.png'))
+            self.update_image(str(Path(__file__).parent / self.IMAGEDIR / 'no_cover.png'))
                         
             if self.timer_id:
                 self.root.after_cancel(self.timer_id)
@@ -1198,7 +1415,7 @@ class Ticker:
         
         elif self.current_song == {}:
             host_str = host_str or self.HOST
-            self.status = self.shared_data.get('status').get('state')
+            self.status = SHARED_DATA.get('status').get('state')
             debug(self_status = self.status, debug = 1)
             debug(host_str = host_str, debug = 1)
             self.canvas.delete("text")
@@ -1206,7 +1423,7 @@ class Ticker:
             self.canvas.create_text(10, 30, text=f"Album: {self.current_song.get('album', '')} ({self.current_song.get('date')})", fill=self.album_color, anchor='nw', tags="text")
             self.canvas.create_text(10, 50, text=f"Artist: {self.current_song.get('artist', '')}", fill=self.artist_color, anchor='nw', tags="text")
             
-            self.update_image(str(Path(__file__).parent / 'no_cover.png'))
+            self.update_image(str(Path(__file__).parent / self.IMAGEDIR / 'no_cover.png'))
                         
             if self.timer_id:
                 self.root.after_cancel(self.timer_id)
@@ -1225,12 +1442,12 @@ class Ticker:
             
             if self.current_song == None or self.current_song == {}:
                 try:
-                    self.current_song = CLIENT.currentsong()
+                    self.current_song = self.client.currentsong()
                 except:
                     try:
                         self.current_song = self.client.currentsong()
                     except:
-                        self.current_song = self.shared_data['current_song']
+                        self.current_song = SHARED_DATA['current_song']
             
             loggered.info(f"self.current_song: {self.current_song}")
             loggered.info(f"self.last_current_song: {self.last_current_song}")
@@ -1268,9 +1485,9 @@ class Ticker:
                     'icon': self.find_cover_art()
                 }
                 
-                value = Process(target = self.notify.send, kwargs = value_kwargs)
+                value = Process(target=NOTIFY.send, kwargs=value_kwargs)
                 setattr(self, f'process_{self.N}', value)
-                eval(f"self.process_{self.N}.start()")
+                value.start()
                 self.N += 1
                 
                 #self.notify.send(title = 'MPD Ticker' + host_str + status_str, message = f"{song.get('title')}\n{song.get('album')}\n{song.get('artist')}\n", icon = self.find_cover_art())
@@ -1288,18 +1505,22 @@ class Ticker:
         debug(picture_path = picture_path)
         debug(self_status = self.status)
         if self.status == 'error':
-            picture_path = str(Path(__file__).parent / 'no_cover.png')
+            picture_path = str(Path(__file__).parent / self.IMAGEDIR / 'no_cover.png')
             debug(picture_path = picture_path)
             #self.original_image = Image.open(picture_path)
             #self.resize_image_to_text_height()
         else:
             try:
                 picture_path = self.find_cover_art()
+                debug(picture_path = picture_path)
+                loggered.warning(f"picture_path: {picture_path}")
             except Exception as e:
+                ctraceback.CTraceback(*sys.exc_info(), print_it = False)
                 print("E 2:", make_colors(str(e), 'lw', 'r'))
                 if os.getenv('traceback') == '1': print(make_colors(traceback.format_exc(), 'lw', 'bl'))
-                picture_path = str(Path(__file__).parent / 'no_cover.png')
+                picture_path = str(Path(__file__).parent / self.IMAGEDIR / 'no_cover.png')
             debug(picture_path = picture_path)
+            loggered.warning(f"picture_path: {picture_path}")
             #self.original_image = Image.open(picture_path)
             #self.resize_image_to_text_height()
             
@@ -1307,8 +1528,9 @@ class Ticker:
             self.original_image = Image.open(picture_path)
             self.resize_image_to_text_height()
         except Exception as e:
+            ctraceback.CTraceback(*sys.exc_info(), print_it = False)
             print("E 3: Error opening image:", make_colors(str(e), 'lw', 'r'))
-            self.original_image = Image.open(str(Path(__file__).parent / 'no_cover.png'))
+            self.original_image = Image.open(str(Path(__file__).parent / self.IMAGEDIR / 'no_cover.png'))
             self.resize_image_to_text_height()
             
     def read_picture(self):
@@ -1318,16 +1540,16 @@ class Ticker:
     def quit(self, event=None):
         self.save_position()  # Save position on quit
         print(make_colors("quit ...............", 'lr'))
-        try:
-            self.process.terminate()
-        except:
-            pass
+        # try:
+        #     self.process.terminate()
+        # except:
+        #     pass
         
-        for i in range(0, self.N + 1):
-            try:
-                eval(f"self.process_{i}.terminate()")
-            except:
-                pass
+        # for i in range(0, self.N + 1):
+        #     try:
+        #         eval(f"self.process_{i}.terminate()")
+        #     except:
+        #         pass
         try:
             self.client.disconnect()
         except:
@@ -1351,10 +1573,15 @@ class Ticker:
         #self.root.geometry(f"+{x}+{y}")
 
 if __name__ == "__main__":
+    CLIENT = MPDClient()
+    SHARED_DATA = Manager().dict()
     root = tk.Tk()
     text = "TRACK.TITLE\nAlbum: ALBUM\nArtist: ARTIST"
+    process = Process(target=connection_watch, args=())
+    process.start()
     app = Ticker(root, text)
     root.mainloop()
+    process.terminate()
     
     #c = Music()
     #print("current song:", c.currentsong())
